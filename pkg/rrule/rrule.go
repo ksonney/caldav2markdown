@@ -104,6 +104,7 @@ func ExpandEvent(event *ics.VEvent, maxOccurrences int, startDate, endDate time.
 	var allDay bool
 
 	if strings.HasPrefix(dtstart.Value, "0001") {
+		// Allow processing of 0001-01-01 events but don't expand them
 		return []*ics.VEvent{event}, nil
 	} else if t, err := time.Parse("20060102T150405Z", dtstart.Value); err == nil {
 		startTime = t

@@ -165,6 +165,58 @@ func TestToMarkdownAllDayEvent(t *testing.T) {
 	}
 }
 
+func TestGenerateFilenameWithDirectoryStructure(t *testing.T) {
+	// Test the new directory structure generation
+	md := EventMarkdown{
+		Title:     "Test Event",
+		StartTime: time.Date(2024, 6, 15, 9, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC),
+		AllDay:    false,
+	}
+
+	outputDir := "/tmp/events"
+	filename := GenerateFilename(outputDir, md)
+
+	expected := "/tmp/events/2024/06/2024-06-15_Test Event.md"
+	if filename != expected {
+		t.Errorf("Expected filename %s, got %s", expected, filename)
+	}
+}
+
+func TestGenerateFilenameMultipleYears(t *testing.T) {
+	// Test events from different years/months
+	testCases := []struct {
+		date     time.Time
+		title    string
+		expected string
+	}{
+		{
+			date:     time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+			title:    "New Year",
+			expected: "events/2023/01/2023-01-01_New Year.md",
+		},
+		{
+			date:     time.Date(2024, 12, 31, 23, 59, 0, 0, time.UTC),
+			title:    "Year End",
+			expected: "events/2024/12/2024-12-31_Year End.md",
+		},
+	}
+
+	for _, tc := range testCases {
+		md := EventMarkdown{
+			Title:     tc.title,
+			StartTime: tc.date,
+			EndTime:   tc.date.Add(time.Hour),
+			AllDay:    false,
+		}
+
+		filename := GenerateFilename("events", md)
+		if filename != tc.expected {
+			t.Errorf("For date %v, expected %s, got %s", tc.date, tc.expected, filename)
+		}
+	}
+}
+
 func TestParseICalDuration(t *testing.T) {
 	tests := []struct {
 		input    string

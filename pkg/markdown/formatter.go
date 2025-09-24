@@ -46,6 +46,7 @@ func ConvertEvent(event *ics.VEvent) EventMarkdown {
 
 	if dtstart := event.GetProperty(ics.ComponentPropertyDtStart); dtstart != nil {
 		if strings.HasPrefix(dtstart.Value, "0001") {
+			// Keep 0001-01-01 dates as zero time but allow processing
 			md.StartTime = time.Time{}
 		} else if startTime, err := time.Parse("20060102T150405Z", dtstart.Value); err == nil {
 			md.StartTime = startTime
@@ -57,6 +58,7 @@ func ConvertEvent(event *ics.VEvent) EventMarkdown {
 
 	if dtend := event.GetProperty(ics.ComponentPropertyDtEnd); dtend != nil {
 		if strings.HasPrefix(dtend.Value, "0001") {
+			// Keep 0001-01-01 dates as zero time but allow processing
 			md.EndTime = time.Time{}
 		} else if endTime, err := time.Parse("20060102T150405Z", dtend.Value); err == nil {
 			md.EndTime = endTime
@@ -95,7 +97,18 @@ func (em EventMarkdown) ToMarkdown() string {
 
 	sb.WriteString(fmt.Sprintf("# %s\n\n", em.Title))
 
-	if em.AllDay {
+	// Handle events with zero time (0001-01-01)
+	if em.StartTime.IsZero() && em.EndTime.IsZero() {
+		sb.WriteString("**Date:** No date specified\n\n")
+	} else if em.StartTime.IsZero() {
+		sb.WriteString(fmt.Sprintf("**End:** %s\n\n", em.EndTime.Format("2006-01-02 15:04")))
+	} else if em.EndTime.IsZero() {
+		if em.AllDay {
+			sb.WriteString(fmt.Sprintf("**Date:** %s (All Day)\n\n", em.StartTime.Format("2006-01-02")))
+		} else {
+			sb.WriteString(fmt.Sprintf("**Start:** %s\n\n", em.StartTime.Format("2006-01-02 15:04")))
+		}
+	} else if em.AllDay {
 		// For all-day events, show the date range
 		if em.StartTime.Format("2006-01-02") == em.EndTime.Format("2006-01-02") {
 			sb.WriteString(fmt.Sprintf("**Date:** %s (All Day)\n\n", em.StartTime.Format("2006-01-02")))
@@ -139,12 +152,33 @@ func (em EventMarkdown) Filename() string {
 	safeTitle = strings.ReplaceAll(safeTitle, ">", "-")
 	safeTitle = strings.ReplaceAll(safeTitle, "|", "-")
 
-	dateStr := em.StartTime.Format("2006-01-02")
+	var dateStr string
+	if em.StartTime.IsZero() {
+		dateStr = "0001-01-01"
+	} else {
+		dateStr = em.StartTime.Format("2006-01-02")
+	}
 	return fmt.Sprintf("%s_%s.md", dateStr, safeTitle)
 }
 
 func GenerateFilename(outputDir string, event EventMarkdown) string {
-	return filepath.Join(outputDir, event.Filename())
+	// Create YYYY/MM directory structure
+	var year, month string
+	if event.StartTime.IsZero() {
+		year = "0001"
+		month = "01"
+	} else {
+		year = event.StartTime.Format("2006")
+		month = event.StartTime.Format("01")
+	}
+	yearMonthDir := filepath.Join(outputDir, year, month)
+
+	return filepath.Join(yearMonthDir, event.Filename())
+}
+
+func EnsureDirectoryExists(filePath string) error {
+	dir := filepath.Dir(filePath)
+	return os.MkdirAll(dir, 0755)
 }
 
 func ConvertTodo(todo *ics.VTodo) TodoMarkdown {
@@ -168,12 +202,13 @@ func ConvertTodo(todo *ics.VTodo) TodoMarkdown {
 	}
 
 	if due := todo.GetProperty(ics.ComponentPropertyDue); due != nil {
-		if !strings.HasPrefix(due.Value, "0001") {
-			if dueTime, err := time.Parse("20060102T150405Z", due.Value); err == nil {
-				md.DueDate = dueTime
-			} else if dueTime, err := time.Parse("20060102", due.Value); err == nil {
-				md.DueDate = dueTime
-			}
+		if strings.HasPrefix(due.Value, "0001") {
+			// Keep 0001-01-01 dates as zero time but allow processing
+			md.DueDate = time.Time{}
+		} else if dueTime, err := time.Parse("20060102T150405Z", due.Value); err == nil {
+			md.DueDate = dueTime
+		} else if dueTime, err := time.Parse("20060102", due.Value); err == nil {
+			md.DueDate = dueTime
 		}
 	}
 

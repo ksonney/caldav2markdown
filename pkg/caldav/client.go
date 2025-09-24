@@ -146,17 +146,23 @@ func (c *Client) getTodoUID(todo *ics.VTodo) string {
 
 func (c *Client) isEventInDateRange(event *ics.VEvent) bool {
 	if dtstart := event.GetProperty(ics.ComponentPropertyDtStart); dtstart != nil {
-		if strings.HasPrefix(dtstart.Value, "0001") {
-			return false
-		}
-
 		var startTime time.Time
 		var err error
 
-		if startTime, err = time.Parse("20060102T150405Z", dtstart.Value); err != nil {
-			if startTime, err = time.Parse("20060102", dtstart.Value); err != nil {
-				return false
+		// Handle special case of 0001-01-01 dates - treat as valid but use zero time for comparison
+		if strings.HasPrefix(dtstart.Value, "0001") {
+			startTime = time.Time{} // Zero time
+		} else {
+			if startTime, err = time.Parse("20060102T150405Z", dtstart.Value); err != nil {
+				if startTime, err = time.Parse("20060102", dtstart.Value); err != nil {
+					return false
+				}
 			}
+		}
+
+		// For zero-time events, include them unconditionally
+		if startTime.IsZero() {
+			return true
 		}
 
 		// Check if event starts before our end date and doesn't end before our start date
@@ -165,14 +171,25 @@ func (c *Client) isEventInDateRange(event *ics.VEvent) bool {
 		}
 
 		// For events with end times, check if they end after our start date
-		if dtend := event.GetProperty(ics.ComponentPropertyDtEnd); dtend != nil && !strings.HasPrefix(dtend.Value, "0001") {
+		if dtend := event.GetProperty(ics.ComponentPropertyDtEnd); dtend != nil {
 			var endTime time.Time
-			if endTime, err = time.Parse("20060102T150405Z", dtend.Value); err != nil {
-				if endTime, err = time.Parse("20060102", dtend.Value); err != nil {
-					// If we can't parse end time, just check start time
-					return (startTime.After(c.startDate) || startTime.Equal(c.startDate))
+			// Handle special case of 0001-01-01 end dates
+			if strings.HasPrefix(dtend.Value, "0001") {
+				endTime = time.Time{} // Zero time
+			} else {
+				if endTime, err = time.Parse("20060102T150405Z", dtend.Value); err != nil {
+					if endTime, err = time.Parse("20060102", dtend.Value); err != nil {
+						// If we can't parse end time, just check start time
+						return (startTime.After(c.startDate) || startTime.Equal(c.startDate))
+					}
 				}
 			}
+
+			// If end time is zero, include the event
+			if endTime.IsZero() {
+				return true
+			}
+
 			return endTime.After(c.startDate) || endTime.Equal(c.startDate)
 		}
 

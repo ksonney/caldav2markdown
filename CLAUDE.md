@@ -4,18 +4,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and Development Commands
 
-```bash
-# Build the application
-go build -o caldav2markdown ./cmd/caldav2markdown
+### Using Make (Recommended)
 
-# Run the application
-./caldav2markdown
+```bash
+# Build the application (creates bin/caldav2markdown)
+make build
+
+# Build and run the application
+make run
 
 # Test connection to CalDAV server
-./caldav2markdown -test
+make test-connection
 
 # Run with custom configuration
-./caldav2markdown -config myconfig.env
+make run-config CONFIG_FILE=myconfig.env
+
+# Run tests
+make test
+
+# Clean build artifacts
+make clean
+
+# Cross-platform builds
+make build-all          # All platforms
+make build-linux        # Linux AMD64
+make build-darwin       # macOS AMD64 and ARM64
+make build-windows      # Windows AMD64
+
+# Development build with debug info
+make build-dev
+
+# Show all available targets
+make help
+```
+
+### Manual Build Commands
+
+```bash
+# Build the application
+go build -o bin/caldav2markdown ./cmd/caldav2markdown
+
+# Run the application
+bin/caldav2markdown
+
+# Test connection to CalDAV server
+bin/caldav2markdown -test
+
+# Run with custom configuration
+bin/caldav2markdown -config myconfig.env
 
 # Build and run in one command
 go run ./cmd/caldav2markdown
@@ -48,7 +84,7 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 
 ### Key Implementation Details
 
-- **Date Filtering**: Configurable date range filtering with default start date of 2000-01-01 and end date 2 years from now
+- **Date Filtering**: Configurable date range filtering with default start date of 2000-01-01 and end date 2 years from now. Events with invalid/unparseable dates are preserved rather than filtered out
 - **Zero Date Handling**: Events and todos with 0001-01-01 dates (placeholder/unspecified dates) are now processed and included
 - **Recurring Events**: Full RRULE support for expanding recurring events including FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTH
 - **Deduplication**: Uses UID properties to prevent duplicate events/todos across all calendar files and recurring event instances
@@ -60,6 +96,8 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 
 ### Recent Enhancements
 
+- **Invalid Date Handling**: Modified date filtering logic to preserve events with unparseable/invalid date formats instead of filtering them out (`pkg/caldav/client.go:158`, `pkg/caldav/client.go:183`)
+- **Build System**: Added comprehensive Makefile with targets for building, testing, cross-compilation, and development workflows
 - **Zero Date Support**: Removed filters that excluded events with 0001-01-01 dates - these events are now processed and saved in `0001/01/` directory
 - **Directory Organization**: Implemented YYYY/MM directory tree structure for better file organization
 - **Recurring Event Support**: Added comprehensive RRULE parsing and event expansion (`pkg/rrule/rrule.go`)

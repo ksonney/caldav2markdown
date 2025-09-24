@@ -155,7 +155,8 @@ func (c *Client) isEventInDateRange(event *ics.VEvent) bool {
 		} else {
 			if startTime, err = time.Parse("20060102T150405Z", dtstart.Value); err != nil {
 				if startTime, err = time.Parse("20060102", dtstart.Value); err != nil {
-					return false
+					// If we can't parse the date, include the event anyway (don't filter out invalid dates)
+					return true
 				}
 			}
 		}
@@ -179,8 +180,8 @@ func (c *Client) isEventInDateRange(event *ics.VEvent) bool {
 			} else {
 				if endTime, err = time.Parse("20060102T150405Z", dtend.Value); err != nil {
 					if endTime, err = time.Parse("20060102", dtend.Value); err != nil {
-						// If we can't parse end time, just check start time
-						return (startTime.After(c.startDate) || startTime.Equal(c.startDate))
+						// If we can't parse end time, include the event anyway (don't filter out invalid dates)
+						return true
 					}
 				}
 			}

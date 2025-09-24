@@ -13,8 +13,18 @@ Proof-of-concept tool to read from CalDAV servers and write calendar events as m
 
 ## Installation
 
+### Using Make (Recommended)
+
 ```bash
-go build -o caldav2markdown ./cmd/caldav2markdown
+make build
+```
+
+The binary will be built in the `bin/` directory.
+
+### Manual Build
+
+```bash
+go build -o bin/caldav2markdown ./cmd/caldav2markdown
 ```
 
 ## Configuration
@@ -39,7 +49,7 @@ OUTPUT_DIR=./events
 ### Method 2: Command Line Flags
 
 ```bash
-./caldav2markdown -url "https://your-server.com/calendars/user/cal/" -username "user" -password "pass"
+bin/caldav2markdown -url "https://your-server.com/calendars/user/cal/" -username "user" -password "pass"
 ```
 
 ## Usage
@@ -48,19 +58,38 @@ OUTPUT_DIR=./events
 
 ```bash
 # Using config file (default: .env)
-./caldav2markdown
+bin/caldav2markdown
 
 # Using custom config file
-./caldav2markdown -config myconfig.env
+bin/caldav2markdown -config myconfig.env
 
 # Using command line flags
-./caldav2markdown -url "https://example.com/cal/" -username "user" -password "pass" -output "./my-events"
+bin/caldav2markdown -url "https://example.com/cal/" -username "user" -password "pass" -output "./my-events"
+```
+
+### Using Make Commands
+
+```bash
+# Build and run with default config
+make run
+
+# Test CalDAV connection
+make test-connection
+
+# Run with custom config file
+make run-config CONFIG_FILE=myconfig.env
+
+# Clean build artifacts
+make clean
+
+# Show all available targets
+make help
 ```
 
 ### Test Connection
 
 ```bash
-./caldav2markdown -test
+bin/caldav2markdown -test
 ```
 
 ### Command Line Options
@@ -87,6 +116,32 @@ Each event is saved as a markdown file with the format `YYYY-MM-DD_Event-Title.m
 ## Description
 
 Weekly team sync to discuss project progress and upcoming milestones.
+```
+
+## Development
+
+### Running Tests
+
+```bash
+make test
+```
+
+### Cross-Platform Builds
+
+```bash
+# Build for all platforms
+make build-all
+
+# Build for specific platforms
+make build-linux    # Linux AMD64
+make build-darwin   # macOS AMD64 and ARM64
+make build-windows  # Windows AMD64
+```
+
+### Development Build with Debug Info
+
+```bash
+make build-dev
 ```
 
 ## CalDAV Server Compatibility

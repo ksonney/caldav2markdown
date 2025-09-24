@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 type Config struct {
-	URL      string
-	Username string
-	Password string
-	Output   string
+	URL       string
+	Username  string
+	Password  string
+	Output    string
+	StartDate time.Time
+	EndDate   time.Time
 }
 
 func LoadFromEnvFile(filename string) (*Config, error) {
@@ -22,7 +25,9 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 	defer file.Close()
 
 	config := &Config{
-		Output: "./events",
+		Output:    "./events",
+		StartDate: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), // Default start date
+		EndDate:   time.Now().AddDate(2, 0, 0),                  // Default end date (2 years from now)
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -52,6 +57,14 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.Password = value
 		case "OUTPUT_DIR":
 			config.Output = value
+		case "START_DATE":
+			if startDate, err := time.Parse("2006-01-02", value); err == nil {
+				config.StartDate = startDate
+			}
+		case "END_DATE":
+			if endDate, err := time.Parse("2006-01-02", value); err == nil {
+				config.EndDate = endDate
+			}
 		}
 	}
 

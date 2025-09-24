@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-./caldav2markdown
+bin/*
 
 # Test binary, built with `go test -c`
 *.test

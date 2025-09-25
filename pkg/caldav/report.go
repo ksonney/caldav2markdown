@@ -223,13 +223,8 @@ func (c *Client) GetEventsWithServerSideFilteringAndProgress(progressCallback Pr
 		// Process events
 		for _, event := range calendar.Events() {
 			// Server-side filtering should have already applied time range,
-			// but we still need to check for edge cases and expand recurring events if needed
-			if !c.isEventInDateRange(event) {
-				continue
-			}
-
-			// Note: Server should handle recurring event expansion, but some servers don't
-			// For now, we still do client-side expansion as a fallback
+			// but some servers don't handle recurring events properly, so we always
+			// expand them and then filter the instances
 			expandedEvents, err := rrule.ExpandEvent(event, 1000, c.startDate, c.endDate)
 			if err != nil {
 				fmt.Printf("Warning: failed to expand recurring event: %v\n", err)
@@ -255,15 +250,28 @@ func (c *Client) GetEventsWithServerSideFilteringAndProgress(progressCallback Pr
 
 		// Process todos
 		for _, todo := range calendar.Todos() {
-			uid := c.getTodoUID(todo)
-			if uid != "" && seenUIDs[uid] {
-				duplicatesFound++
-				continue
+			// Always expand recurring todos first, then filter the instances
+			expandedTodos, err := rrule.ExpandTodo(todo, 1000, c.startDate, c.endDate)
+			if err != nil {
+				fmt.Printf("Warning: failed to expand recurring todo: %v\n", err)
+				expandedTodos = []*ics.VTodo{todo} // Fall back to original todo
 			}
-			if uid != "" {
-				seenUIDs[uid] = true
+
+			for _, expandedTodo := range expandedTodos {
+				if !c.isTodoInDateRange(expandedTodo) {
+					continue
+				}
+
+				uid := c.getTodoUID(expandedTodo)
+				if uid != "" && seenUIDs[uid] {
+					duplicatesFound++
+					continue
+				}
+				if uid != "" {
+					seenUIDs[uid] = true
+				}
+				todos = append(todos, expandedTodo)
 			}
-			todos = append(todos, todo)
 		}
 	}
 

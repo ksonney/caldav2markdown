@@ -449,6 +449,9 @@ type ExistingDayContent struct {
 	ScheduledEvents []string
 	Tasks           []string
 	OtherContent    []string // Any content that doesn't fit the standard sections
+	Frontmatter     map[string]interface{} // Raw existing YAML frontmatter
+	HasFrontmatter  bool                   // Whether the file had frontmatter
+	CustomSections  map[string][]string    // Custom sections with their content
 }
 
 // parseExistingFile reads and parses an existing daily markdown file
@@ -462,14 +465,52 @@ func parseExistingFile(filename string) (*ExistingDayContent, error) {
 	}
 	defer file.Close()
 
-	content := &ExistingDayContent{}
+	content := &ExistingDayContent{
+		CustomSections: make(map[string][]string),
+	}
 	scanner := bufio.NewScanner(file)
 
 	currentSection := ""
 	var currentItems []string
+	inFrontmatter := false
+	frontmatterComplete := false
+	var frontmatterLines []string
 
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Handle YAML frontmatter
+		if !frontmatterComplete {
+			if line == "---" {
+				if !inFrontmatter {
+					// Starting frontmatter
+					inFrontmatter = true
+					content.HasFrontmatter = true
+					continue
+				} else {
+					// Ending frontmatter
+					frontmatterComplete = true
+					// Parse the collected frontmatter
+					if len(frontmatterLines) > 0 {
+						frontmatterYAML := strings.Join(frontmatterLines, "\n")
+						var fm map[string]interface{}
+						if err := yaml.Unmarshal([]byte(frontmatterYAML), &fm); err == nil {
+							content.Frontmatter = fm
+						}
+					}
+					continue
+				}
+			}
+			if inFrontmatter {
+				frontmatterLines = append(frontmatterLines, line)
+				continue
+			}
+			// If we reach here and haven't seen frontmatter delimiter,
+			// then there's no frontmatter
+			if line != "" && !strings.HasPrefix(line, "#") {
+				frontmatterComplete = true
+			}
+		}
 
 		// Check for title (date header)
 		if strings.HasPrefix(line, "# ") {
@@ -491,7 +532,8 @@ func parseExistingFile(filename string) (*ExistingDayContent, error) {
 			case "## Tasks":
 				currentSection = "tasks"
 			default:
-				currentSection = "other"
+				// This is a custom section - store the header name
+				currentSection = line
 			}
 			currentItems = []string{}
 			continue
@@ -506,7 +548,7 @@ func parseExistingFile(filename string) (*ExistingDayContent, error) {
 		if currentSection != "" {
 			currentItems = append(currentItems, line)
 		} else {
-			// Content before any section headers
+			// Content before any section headers (but after frontmatter)
 			content.OtherContent = append(content.OtherContent, line)
 		}
 	}
@@ -530,8 +572,16 @@ func savePreviousSection(content *ExistingDayContent, section string, items []st
 		content.ScheduledEvents = items
 	case "tasks":
 		content.Tasks = items
-	case "other":
-		content.OtherContent = append(content.OtherContent, items...)
+	default:
+		if section != "" {
+			if strings.HasPrefix(section, "##") {
+				// This is a custom section header
+				content.CustomSections[section] = items
+			} else {
+				// This is other content (before any headers)
+				content.OtherContent = append(content.OtherContent, items...)
+			}
+		}
 	}
 }
 
@@ -622,10 +672,78 @@ func generateMergedContent(date string, existingContent *ExistingDayContent, new
 func generateMergedContentWithFrontmatter(date string, existingContent *ExistingDayContent, newAllDay, newScheduled, newTasks []string, events []EventMarkdown, tasks []TodoMarkdown, useFrontmatter bool) string {
 	var sb strings.Builder
 
-	// Add frontmatter if requested
-	if useFrontmatter {
-		frontmatterContent := generateFrontmatter(date, len(newAllDay), len(newScheduled), len(newTasks), events, tasks, true)
-		sb.WriteString(frontmatterContent)
+	// Handle frontmatter - merge existing with new if requested
+	if useFrontmatter || (existingContent != nil && existingContent.HasFrontmatter) {
+		var mergedFrontmatter map[string]interface{}
+
+		// Start with existing frontmatter if available
+		if existingContent != nil && existingContent.Frontmatter != nil {
+			mergedFrontmatter = make(map[string]interface{})
+			// Copy existing frontmatter
+			for k, v := range existingContent.Frontmatter {
+				mergedFrontmatter[k] = v
+			}
+		} else {
+			mergedFrontmatter = make(map[string]interface{})
+		}
+
+		// Update with current data
+		mergedFrontmatter["date"] = date
+		if date == "0001-01-01" {
+			mergedFrontmatter["title"] = "Events (Date TBD)"
+		} else {
+			if parsedDate, err := time.Parse("2006-01-02", date); err == nil {
+				mergedFrontmatter["title"] = parsedDate.Format("Monday, January 2, 2006")
+			} else {
+				mergedFrontmatter["title"] = date
+			}
+		}
+		mergedFrontmatter["event_count"] = len(newAllDay) + len(newScheduled)
+		mergedFrontmatter["task_count"] = len(newTasks)
+		mergedFrontmatter["allday_count"] = len(newAllDay)
+		mergedFrontmatter["type"] = "daily"
+
+		// Collect unique tags from existing and new events/tasks
+		tagSet := make(map[string]bool)
+
+		// Preserve existing tags
+		if existingTags, exists := mergedFrontmatter["tags"]; exists {
+			if tagSlice, ok := existingTags.([]interface{}); ok {
+				for _, tag := range tagSlice {
+					if tagStr, ok := tag.(string); ok && tagStr != "" {
+						tagSet[tagStr] = true
+					}
+				}
+			}
+		}
+
+		// Add new tags from events and tasks
+		for _, event := range events {
+			for _, cat := range event.Categories {
+				if cat != "" {
+					tagSet[cat] = true
+				}
+			}
+		}
+		for _, task := range tasks {
+			for _, cat := range task.Categories {
+				if cat != "" {
+					tagSet[cat] = true
+				}
+			}
+		}
+
+		var tags []string
+		for tag := range tagSet {
+			tags = append(tags, tag)
+		}
+		mergedFrontmatter["tags"] = tags
+
+		// Generate YAML frontmatter
+		yamlData, err := yaml.Marshal(mergedFrontmatter)
+		if err == nil {
+			sb.WriteString(fmt.Sprintf("---\n%s---\n\n", string(yamlData)))
+		}
 	}
 
 	// Generate title
@@ -667,6 +785,26 @@ func generateMergedContentWithFrontmatter(date string, existingContent *Existing
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
+	}
+
+	// Add custom sections from existing file (if any)
+	if existingContent != nil {
+		for sectionHeader, sectionItems := range existingContent.CustomSections {
+			// Skip standard sections as they'll be handled below
+			if sectionHeader == "## All Day Events" || sectionHeader == "## Scheduled Events" || sectionHeader == "## Tasks" {
+				continue
+			}
+
+			if len(sectionItems) > 0 {
+				sb.WriteString(sectionHeader)
+				sb.WriteString("\n\n")
+				for _, item := range sectionItems {
+					sb.WriteString(item)
+					sb.WriteString("\n")
+				}
+				sb.WriteString("\n")
+			}
+		}
 	}
 
 	// Add all-day events section

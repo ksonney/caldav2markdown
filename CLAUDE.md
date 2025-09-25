@@ -100,6 +100,8 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Date Filtering**: Configurable date range filtering with default start date of 2000-01-01 and end date 2 years from now. Events with invalid/unparseable dates are preserved rather than filtered out
 - **Zero Date Handling**: Events and todos with 0001-01-01 dates (placeholder/unspecified dates) are now processed and included
 - **Recurring Events**: Full RRULE support for expanding recurring events including FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTH
+  - **Smart Date Range Processing**: Recurring events and tasks are expanded first, then filtered by date range, ensuring recurring items with start dates outside the filter range are still processed if they have instances within the range
+  - **Recurring Task Support**: Both VEVENT and VTODO components support RRULE expansion with proper due date and start date handling
 - **Deduplication**: Uses UID properties to prevent duplicate events/todos across all calendar files and recurring event instances, includes duplicate detection during file merging
 - **Enhanced Time Parsing**: Supports multiple iCalendar date/time formats including UTC times with Z suffix (`20060102T150405Z`), local times without Z suffix (`20060102T150405`), and all-day events (`20060102`) with automatic end-time calculation
 - **Duration Handling**: Automatic calculation of event durations, with 1-hour default for events without end times
@@ -134,6 +136,19 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Individual Calendar Processing**: Each calendar processed independently with fallback error handling
 
 ### Recent Major Updates
+
+#### 2025 Recurring Events & Tasks Enhancement
+- **Fixed Recurring Event Filtering**: Recurring events and tasks are now properly processed when their original start date falls outside the configured date filter range
+- **Smart Processing Order**: Changed processing logic to expand recurring items first, then filter individual instances by date, ensuring no valid occurrences are missed
+- **Enhanced RRULE Support**: Added full recurring task (VTODO) support with `ExpandTodo()` function matching VEVENT capabilities
+- **Improved Date Range Logic**: All processors (CalDAV client, CalDAV report, ICS processor) now use consistent expand-then-filter approach
+- **Comprehensive Task Support**: Fixed task-only calendar processing and added recurring task expansion with due date and start date handling
+
+#### 2025 ICS File Support & Multi-Source Processing
+- **Local and Remote ICS Files**: Added comprehensive support for both local `.ics` files and remote HTTP/HTTPS ICS URLs with multiple authentication methods
+- **Enhanced File Merging**: Improved frontmatter preservation and intelligent merging when updating existing markdown files
+- **Task-Only Calendar Support**: Fixed early exit logic that was ignoring calendars containing only tasks (VTODO components) with no events
+- **Multi-Authentication Support**: Support for no auth, basic auth, bearer tokens, and custom headers for remote ICS sources
 
 #### 2025 Authentication & Security Updates
 - **Google OAuth 2.0**: Full implementation for Google Calendar CalDAV access (mandatory as of March 2025)
@@ -173,6 +188,20 @@ The application processes the following iCalendar component types:
 - **VEVENT**: Calendar events with full recurring event support
 - **VTODO**: Tasks and todos with status, priority, and due date handling
 
+#### Calendar Types Supported
+- **Event-only calendars**: Calendars containing only VEVENT components
+- **Task-only calendars**: Calendars containing only VTODO components (useful for task management systems)
+- **Mixed calendars**: Calendars containing both events and tasks
+- **Empty calendars**: Gracefully handled with appropriate messaging
+
+#### Task-Only Calendar Features
+- **Due date handling**: Tasks are organized by due date in daily files
+- **No due date tasks**: Tasks without due dates are placed in "0001/01/0001-01-01.md" (Date TBD)
+- **Task status**: Supports NEEDS-ACTION, IN-PROCESS, COMPLETED, and other standard statuses
+- **Completed tasks**: Properly marked with `[x]` checkbox in markdown
+- **Priority levels**: Task priorities (1-9) are displayed and can be used for filtering
+- **Categories**: Task categories are preserved in YAML frontmatter tags
+
 Other iCalendar component types (VJOURNAL, VFREEBUSY, VTIMEZONE, etc.) are ignored during processing.
 
 ### Configuration Examples
@@ -204,4 +233,19 @@ CALDAV_USERNAME=username
 CALDAV_PASSWORD=password
 USE_DUE_DATE_EMOJI=true
 OUTPUT_DIR=./calendar-notes
+```
+
+#### Task-Only Calendar (ICS Mode)
+```bash
+SOURCE_MODE=ics
+ICS_PATH=./tasks.ics
+# Or for remote task management systems:
+# ICS_URL=https://tasks.example.com/export/my-tasks.ics
+# ICS_AUTH=basic
+# ICS_USERNAME=username
+# ICS_PASSWORD=password
+OUTPUT_DIR=./task-notes
+USE_FRONTMATTER=true
+USE_HASHTAGS=true
+USE_DUE_DATE_EMOJI=true
 ```

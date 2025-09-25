@@ -197,12 +197,7 @@ func (c *Client) getEventsWithClientSideFilteringAndProgress(progressCallback Pr
 		}
 
 		for _, event := range calendar.Events() {
-			// Skip events outside the configured date range
-			if !c.isEventInDateRange(event) {
-				continue
-			}
-
-			// Expand recurring events
+			// Always expand recurring events first, then filter the instances
 			expandedEvents, err := rrule.ExpandEvent(event, 1000, c.startDate, c.endDate)
 			if err != nil {
 				fmt.Printf("Warning: failed to expand recurring event: %v\n", err)
@@ -210,7 +205,7 @@ func (c *Client) getEventsWithClientSideFilteringAndProgress(progressCallback Pr
 			}
 
 			for _, expandedEvent := range expandedEvents {
-				// Skip events outside the configured date range (check again for expanded events)
+				// Filter expanded instances based on their individual dates
 				if !c.isEventInDateRange(expandedEvent) {
 					continue
 				}
@@ -228,15 +223,29 @@ func (c *Client) getEventsWithClientSideFilteringAndProgress(progressCallback Pr
 		}
 
 		for _, todo := range calendar.Todos() {
-			uid := c.getTodoUID(todo)
-			if uid != "" && seenUIDs[uid] {
-				duplicatesFound++
-				continue
+			// Always expand recurring todos first, then filter the instances
+			expandedTodos, err := rrule.ExpandTodo(todo, 1000, c.startDate, c.endDate)
+			if err != nil {
+				fmt.Printf("Warning: failed to expand recurring todo: %v\n", err)
+				expandedTodos = []*ics.VTodo{todo} // Fall back to original todo
 			}
-			if uid != "" {
-				seenUIDs[uid] = true
+
+			for _, expandedTodo := range expandedTodos {
+				// Filter expanded instances based on their individual dates
+				if !c.isTodoInDateRange(expandedTodo) {
+					continue
+				}
+
+				uid := c.getTodoUID(expandedTodo)
+				if uid != "" && seenUIDs[uid] {
+					duplicatesFound++
+					continue
+				}
+				if uid != "" {
+					seenUIDs[uid] = true
+				}
+				todos = append(todos, expandedTodo)
 			}
-			todos = append(todos, todo)
 		}
 	}
 
@@ -315,6 +324,57 @@ func (c *Client) isEventInDateRange(event *ics.VEvent) bool {
 	}
 
 	return false
+}
+
+func (c *Client) isTodoInDateRange(todo *ics.VTodo) bool {
+	// Check due date first
+	if due := todo.GetProperty(ics.ComponentPropertyDue); due != nil {
+		var dueTime time.Time
+
+		// Handle special case of 0001-01-01 dates - treat as valid but use zero time for comparison
+		if strings.HasPrefix(due.Value, "0001") {
+			dueTime = time.Time{} // Zero time
+		} else {
+			if t, _, parseErr := parseICalDateTime(due.Value); parseErr == nil {
+				dueTime = t
+			} else {
+				// If we can't parse the date, include the todo anyway (don't filter out invalid dates)
+				return true
+			}
+		}
+
+		// For zero-time todos, include them unconditionally
+		if dueTime.IsZero() {
+			return true
+		}
+
+		// Check if todo due date is within our range
+		return (dueTime.After(c.startDate) || dueTime.Equal(c.startDate)) && !dueTime.After(c.endDate)
+	}
+
+	// If no due date, check start date
+	if dtstart := todo.GetProperty(ics.ComponentPropertyDtStart); dtstart != nil {
+		var startTime time.Time
+
+		if strings.HasPrefix(dtstart.Value, "0001") {
+			startTime = time.Time{} // Zero time
+		} else {
+			if t, _, parseErr := parseICalDateTime(dtstart.Value); parseErr == nil {
+				startTime = t
+			} else {
+				return true
+			}
+		}
+
+		if startTime.IsZero() {
+			return true
+		}
+
+		return (startTime.After(c.startDate) || startTime.Equal(c.startDate)) && !startTime.After(c.endDate)
+	}
+
+	// If no date information, include the todo
+	return true
 }
 
 func (c *Client) TestConnection() error {

@@ -2,6 +2,20 @@
 
 A powerful CalDAV to Markdown converter that transforms your calendar events and tasks into organized, searchable markdown files. Perfect for integrating calendar data with static site generators, note-taking apps, or personal knowledge management systems.
 
+## 🆕 Recent Updates
+
+### Enhanced Recurring Event Processing (2025)
+- **Fixed Date Range Filtering**: Recurring events and tasks are now properly processed when their original start date falls outside the configured date filter range
+- **Smart Instance Detection**: The application expands recurring items first, then filters individual instances by date, ensuring no valid occurrences are missed
+- **Recurring Task Support**: Added full RRULE expansion support for VTODO components, matching the capabilities of VEVENT processing
+- **Improved Accuracy**: Eliminates the previous issue where recurring events with start dates before the filter range were completely ignored
+
+### ICS File Support (2025)
+- **Local and Remote ICS**: Added comprehensive support for both local `.ics` files and remote HTTP/HTTPS ICS URLs
+- **Multiple Authentication**: Support for no auth, basic auth, bearer tokens, and custom headers for remote ICS sources
+- **Task-Only Calendar Support**: Fixed processing of calendars containing only tasks (VTODO components) with no events
+- **Enhanced File Merging**: Improved frontmatter preservation and merging when updating existing markdown files
+
 ## ✨ Key Features
 
 ### 🔐 Authentication & Security
@@ -24,7 +38,8 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 
 ### 📅 Calendar Features
 - **Event Processing**: Full support for recurring events with RRULE expansion
-- **Task Management**: Todo extraction with due dates, priorities, and status
+- **Smart Recurring Processing**: Recurring events/tasks are expanded first, then filtered by date range, ensuring items with start dates outside the filter range are included if they have instances within the range
+- **Task Management**: Todo extraction with due dates, priorities, and status, including recurring task support
 - **Date/Time Handling**: Support for UTC, local time, and all-day events
 - **Category Integration**: Calendar categories preserved in frontmatter
 - **Date Filtering**: Configurable date range filtering for focused output
@@ -426,6 +441,33 @@ The application supports multiple iCalendar date/time formats:
 - **Date Only**: `20240924` (September 24, 2024 - all-day event)
 
 This enhancement ensures compatibility with various CalDAV servers that may format date/time values differently.
+
+## Recurring Events and Tasks
+
+### Smart Processing Logic
+
+The application uses an intelligent approach to handle recurring events and tasks:
+
+1. **Expansion First**: All recurring items (VEVENT and VTODO with RRULE) are expanded into individual instances
+2. **Date Filtering Second**: Each expanded instance is then filtered by its specific date/time
+3. **Global Deduplication**: Duplicate instances across calendars are removed using UID-based tracking
+
+### Benefits
+
+- **No Missing Events**: Recurring events with start dates outside your filter range are still processed if they have instances within the range
+- **Accurate Task Processing**: Recurring tasks work identically to events, expanding based on due dates or start dates
+- **Performance Optimized**: Server-side filtering is attempted first, with client-side expansion as fallback
+
+### Example Scenario
+
+```
+Filter Range: 2024-06-01 to 2024-06-30
+Recurring Event: Weekly meeting starting 2024-01-01, every Monday
+
+Result: All Monday meetings in June 2024 are included, even though the original event started before the filter range
+```
+
+This fix ensures comprehensive calendar processing without missing important recurring items.
 
 ## Development
 

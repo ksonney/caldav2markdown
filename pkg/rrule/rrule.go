@@ -344,3 +344,137 @@ func createEventOccurrence(originalEvent *ics.VEvent, newStart time.Time, durati
 
 	return newEvent
 }
+
+// ExpandTodo expands a recurring todo into individual occurrences within a given time range
+func ExpandTodo(todo *ics.VTodo, maxOccurrences int, startDate, endDate time.Time) ([]*ics.VTodo, error) {
+	rruleProp := todo.GetProperty(ics.ComponentPropertyRrule)
+	if rruleProp == nil {
+		// Not a recurring todo, return the original
+		return []*ics.VTodo{todo}, nil
+	}
+
+	rule, err := ParseRRule(rruleProp.Value)
+	if err != nil {
+		return []*ics.VTodo{todo}, nil // Return original on parse error
+	}
+
+	// Get the due date or start date of the original todo
+	var baseTime time.Time
+	var allDay bool
+
+	// Try DUE date first, then DTSTART
+	if due := todo.GetProperty(ics.ComponentPropertyDue); due != nil {
+		if strings.HasPrefix(due.Value, "0001") {
+			// Allow processing of 0001-01-01 todos but don't expand them
+			return []*ics.VTodo{todo}, nil
+		} else if t, isAllDay, err := parseICalDateTime(due.Value); err == nil {
+			baseTime = t
+			allDay = isAllDay
+		}
+	} else if dtstart := todo.GetProperty(ics.ComponentPropertyDtStart); dtstart != nil {
+		if strings.HasPrefix(dtstart.Value, "0001") {
+			return []*ics.VTodo{todo}, nil
+		} else if t, isAllDay, err := parseICalDateTime(dtstart.Value); err == nil {
+			baseTime = t
+			allDay = isAllDay
+		}
+	}
+
+	if baseTime.IsZero() {
+		return []*ics.VTodo{todo}, nil
+	}
+
+	var todos []*ics.VTodo
+	current := baseTime
+	count := 0
+
+	// Limit to prevent infinite loops
+	if maxOccurrences == 0 {
+		maxOccurrences = 1000
+	}
+
+	for count < maxOccurrences {
+		// Check if we've reached the UNTIL date or COUNT limit
+		if !rule.Until.IsZero() && current.After(rule.Until) {
+			break
+		}
+		if rule.Count > 0 && count >= rule.Count {
+			break
+		}
+		if current.After(endDate) {
+			break
+		}
+
+		// Skip occurrences before the start date
+		if current.Before(startDate) {
+			current = getNextOccurrence(current, rule)
+			continue
+		}
+
+		// Check constraints (BYMONTH, BYDAY, etc.)
+		if !matchesConstraints(current, rule) {
+			current = getNextOccurrence(current, rule)
+			continue
+		}
+
+		// Create a new todo for this occurrence
+		newTodo := createTodoOccurrence(todo, current, allDay)
+		todos = append(todos, newTodo)
+		count++
+
+		current = getNextOccurrence(current, rule)
+	}
+
+	return todos, nil
+}
+
+// createTodoOccurrence creates a new todo occurrence for a specific date
+func createTodoOccurrence(originalTodo *ics.VTodo, newDate time.Time, allDay bool) *ics.VTodo {
+	newTodo := &ics.VTodo{}
+
+	// Copy all properties from the original todo
+	for _, prop := range originalTodo.Properties {
+		newProp := &ics.IANAProperty{
+			BaseProperty: ics.BaseProperty{
+				IANAToken:       prop.IANAToken,
+				Value:           prop.Value,
+				ICalParameters:  make(map[string][]string),
+			},
+		}
+
+		// Copy parameters
+		if prop.ICalParameters != nil {
+			for key, values := range prop.ICalParameters {
+				newProp.ICalParameters[key] = make([]string, len(values))
+				copy(newProp.ICalParameters[key], values)
+			}
+		}
+
+		newTodo.Properties = append(newTodo.Properties, *newProp)
+	}
+
+	// Update DUE date if it exists, otherwise update DTSTART
+	var dateValue string
+	if allDay {
+		dateValue = newDate.Format("20060102")
+	} else {
+		dateValue = newDate.UTC().Format("20060102T150405Z")
+	}
+
+	if originalTodo.GetProperty(ics.ComponentPropertyDue) != nil {
+		newTodo.SetProperty(ics.ComponentPropertyDue, dateValue)
+	} else if originalTodo.GetProperty(ics.ComponentPropertyDtStart) != nil {
+		newTodo.SetProperty(ics.ComponentPropertyDtStart, dateValue)
+	}
+
+	// Remove the RRULE property from the occurrence
+	newTodo.RemoveProperty(ics.ComponentPropertyRrule)
+
+	// Update UID to make each occurrence unique
+	if uid := newTodo.GetProperty(ics.ComponentPropertyUniqueId); uid != nil {
+		newUID := uid.Value + "_" + newDate.Format("20060102T150405")
+		newTodo.SetProperty(ics.ComponentPropertyUniqueId, newUID)
+	}
+
+	return newTodo
+}

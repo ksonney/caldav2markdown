@@ -1,6 +1,9 @@
 package markdown
 
 import (
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -258,6 +261,381 @@ func TestFormatDuration(t *testing.T) {
 		result := formatDuration(test.input)
 		if result != test.expected {
 			t.Errorf("For duration %v, expected %s, got %s", test.input, test.expected, result)
+		}
+	}
+}
+
+func TestGenerateDailyFilesWithTasks(t *testing.T) {
+	// Create a temporary directory for test output
+	tmpDir, err := ioutil.TempDir("", "caldav_test_")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create test events
+	events := []EventMarkdown{
+		{
+			Title:     "Morning Meeting",
+			StartTime: time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC),
+			EndTime:   time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Create test tasks
+	tasks := []TodoMarkdown{
+		{
+			Title:   "Complete project report",
+			DueDate: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			Title:   "Review documents",
+			DueDate: time.Date(2024, 6, 2, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Generate daily files with both events and tasks (without emoji or hashtags)
+	err = GenerateDailyFilesWithTasks(tmpDir, events, tasks, false, false)
+	if err != nil {
+		t.Fatalf("Failed to generate daily files: %v", err)
+	}
+
+	// Check that the file for 2024-06-01 exists and contains both event and task
+	expectedFile := filepath.Join(tmpDir, "2024", "06", "2024-06-01.md")
+	content, err := ioutil.ReadFile(expectedFile)
+	if err != nil {
+		t.Fatalf("Failed to read generated file %s: %v", expectedFile, err)
+	}
+
+	contentStr := string(content)
+
+	// Check that the event is included
+	if !strings.Contains(contentStr, "Morning Meeting") {
+		t.Error("Daily file should contain the event")
+	}
+
+	// Check that the task is included
+	if !strings.Contains(contentStr, "Complete project report") {
+		t.Error("Daily file should contain the task")
+	}
+
+	// Check that the Tasks section exists
+	if !strings.Contains(contentStr, "## Tasks") {
+		t.Error("Daily file should contain the Tasks section")
+	}
+
+	// Check that the second task is in a different file
+	expectedFile2 := filepath.Join(tmpDir, "2024", "06", "2024-06-02.md")
+	content2, err := ioutil.ReadFile(expectedFile2)
+	if err != nil {
+		t.Fatalf("Failed to read generated file %s: %v", expectedFile2, err)
+	}
+
+	contentStr2 := string(content2)
+	if !strings.Contains(contentStr2, "Review documents") {
+		t.Error("Second daily file should contain the second task")
+	}
+}
+
+func TestGenerateDailyFilesWithTasksAndEmoji(t *testing.T) {
+	// Create a temporary directory for test output
+	tmpDir, err := ioutil.TempDir("", "caldav_emoji_test_")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create test tasks
+	tasks := []TodoMarkdown{
+		{
+			Title:   "Complete project report",
+			DueDate: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Generate daily files with emoji enabled (hashtags disabled)
+	err = GenerateDailyFilesWithTasks(tmpDir, nil, tasks, true, false)
+	if err != nil {
+		t.Fatalf("Failed to generate daily files with emoji: %v", err)
+	}
+
+	// Check that the file contains the emoji
+	expectedFile := filepath.Join(tmpDir, "2024", "06", "2024-06-01.md")
+	content, err := ioutil.ReadFile(expectedFile)
+	if err != nil {
+		t.Fatalf("Failed to read generated file %s: %v", expectedFile, err)
+	}
+
+	contentStr := string(content)
+
+	// Check that the task uses emoji for due date
+	if !strings.Contains(contentStr, "📅 2024-06-01") {
+		t.Error("Daily file should contain the due date with calendar emoji")
+	}
+
+	// Check that it doesn't contain the old "Due:" format
+	if strings.Contains(contentStr, "Due: 2024-06-01") {
+		t.Error("Daily file should not contain the old 'Due:' format when emoji is enabled")
+	}
+}
+
+func TestGenerateDailyFilesWithHashtags(t *testing.T) {
+	// Create a temporary directory for test output
+	tmpDir, err := ioutil.TempDir("", "caldav_hashtag_test_")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create test events
+	events := []EventMarkdown{
+		{
+			Title:     "Team Meeting",
+			StartTime: time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC),
+			EndTime:   time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC),
+		},
+		{
+			Title:  "All Day Conference",
+			AllDay: true,
+			StartTime: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Create test tasks
+	tasks := []TodoMarkdown{
+		{
+			Title:   "Complete project report",
+			DueDate: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Generate daily files with hashtags enabled
+	err = GenerateDailyFilesWithTasks(tmpDir, events, tasks, false, true)
+	if err != nil {
+		t.Fatalf("Failed to generate daily files with hashtags: %v", err)
+	}
+
+	// Check that the file contains the hashtags
+	expectedFile := filepath.Join(tmpDir, "2024", "06", "2024-06-01.md")
+	content, err := ioutil.ReadFile(expectedFile)
+	if err != nil {
+		t.Fatalf("Failed to read generated file %s: %v", expectedFile, err)
+	}
+
+	contentStr := string(content)
+
+	// Check that events have #event hashtag
+	if !strings.Contains(contentStr, "Team Meeting") {
+		t.Error("Daily file should contain the scheduled event")
+	}
+	if !strings.Contains(contentStr, "#event") {
+		t.Error("Daily file should contain #event hashtag")
+	}
+
+	// Check that tasks have #task hashtag
+	if !strings.Contains(contentStr, "Complete project report") {
+		t.Error("Daily file should contain the task")
+	}
+	if !strings.Contains(contentStr, "#task") {
+		t.Error("Daily file should contain #task hashtag")
+	}
+
+	// Count hashtag occurrences to ensure they're properly placed
+	eventHashtagCount := strings.Count(contentStr, "#event")
+	taskHashtagCount := strings.Count(contentStr, "#task")
+
+	if eventHashtagCount != 2 { // Two events
+		t.Errorf("Expected 2 #event hashtags, found %d", eventHashtagCount)
+	}
+	if taskHashtagCount != 1 { // One task
+		t.Errorf("Expected 1 #task hashtag, found %d", taskHashtagCount)
+	}
+}
+
+func TestFileMerging(t *testing.T) {
+	// Create a temporary directory for test output
+	tmpDir, err := ioutil.TempDir("", "caldav_merge_test_")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// First, create an initial file with some content
+	initialEvents := []EventMarkdown{
+		{
+			Title:     "Initial Meeting",
+			StartTime: time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC),
+			EndTime:   time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC),
+		},
+	}
+
+	initialTasks := []TodoMarkdown{
+		{
+			Title:   "Initial task",
+			DueDate: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Generate initial file
+	err = GenerateDailyFilesWithTasks(tmpDir, initialEvents, initialTasks, false, false)
+	if err != nil {
+		t.Fatalf("Failed to generate initial daily files: %v", err)
+	}
+
+	// Verify initial content
+	expectedFile := filepath.Join(tmpDir, "2024", "06", "2024-06-01.md")
+	initialContent, err := ioutil.ReadFile(expectedFile)
+	if err != nil {
+		t.Fatalf("Failed to read initial file: %v", err)
+	}
+
+	if !strings.Contains(string(initialContent), "Initial Meeting") {
+		t.Error("Initial file should contain Initial Meeting")
+	}
+	if !strings.Contains(string(initialContent), "Initial task") {
+		t.Error("Initial file should contain Initial task")
+	}
+
+	// Now add new content to the same date
+	newEvents := []EventMarkdown{
+		{
+			Title:     "New Meeting",
+			StartTime: time.Date(2024, 6, 1, 14, 0, 0, 0, time.UTC),
+			EndTime:   time.Date(2024, 6, 1, 15, 0, 0, 0, time.UTC),
+		},
+	}
+
+	newTasks := []TodoMarkdown{
+		{
+			Title:   "New task",
+			DueDate: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Generate file again (should merge, not overwrite)
+	err = GenerateDailyFilesWithTasks(tmpDir, newEvents, newTasks, false, false)
+	if err != nil {
+		t.Fatalf("Failed to generate merged daily files: %v", err)
+	}
+
+	// Verify merged content contains both old and new items
+	mergedContent, err := ioutil.ReadFile(expectedFile)
+	if err != nil {
+		t.Fatalf("Failed to read merged file: %v", err)
+	}
+
+	contentStr := string(mergedContent)
+
+	// Check that both initial and new events are present
+	if !strings.Contains(contentStr, "Initial Meeting") {
+		t.Error("Merged file should still contain Initial Meeting")
+	}
+	if !strings.Contains(contentStr, "New Meeting") {
+		t.Error("Merged file should contain New Meeting")
+	}
+
+	// Check that both initial and new tasks are present
+	if !strings.Contains(contentStr, "Initial task") {
+		t.Error("Merged file should still contain Initial task")
+	}
+	if !strings.Contains(contentStr, "New task") {
+		t.Error("Merged file should contain New task")
+	}
+
+	// Test deduplication - add the same event again
+	duplicateEvents := []EventMarkdown{
+		{
+			Title:     "New Meeting", // Same as before
+			StartTime: time.Date(2024, 6, 1, 14, 0, 0, 0, time.UTC),
+			EndTime:   time.Date(2024, 6, 1, 15, 0, 0, 0, time.UTC),
+		},
+	}
+
+	err = GenerateDailyFilesWithTasks(tmpDir, duplicateEvents, nil, false, false)
+	if err != nil {
+		t.Fatalf("Failed to generate file with duplicates: %v", err)
+	}
+
+	// Verify no duplicate entries
+	finalContent, err := ioutil.ReadFile(expectedFile)
+	if err != nil {
+		t.Fatalf("Failed to read final file: %v", err)
+	}
+
+	finalContentStr := string(finalContent)
+	newMeetingCount := strings.Count(finalContentStr, "New Meeting")
+	if newMeetingCount != 1 {
+		t.Errorf("Expected 1 occurrence of 'New Meeting', found %d", newMeetingCount)
+	}
+}
+
+func TestProgressCallback(t *testing.T) {
+	// Create a temporary directory for test output
+	tmpDir, err := ioutil.TempDir("", "caldav_progress_test_")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create test events for multiple dates
+	events := []EventMarkdown{
+		{
+			Title:     "Event 1",
+			StartTime: time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC),
+			EndTime:   time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC),
+		},
+		{
+			Title:     "Event 2",
+			StartTime: time.Date(2024, 6, 2, 14, 0, 0, 0, time.UTC),
+			EndTime:   time.Date(2024, 6, 2, 15, 0, 0, 0, time.UTC),
+		},
+	}
+
+	// Track progress callbacks
+	var progressMessages []string
+	var progressCounts []int
+	var progressTotals []int
+
+	progressCallback := func(message string, current, total int) {
+		progressMessages = append(progressMessages, message)
+		progressCounts = append(progressCounts, current)
+		progressTotals = append(progressTotals, total)
+	}
+
+	// Generate files with progress callback
+	err = GenerateDailyFilesWithTasksAndProgress(tmpDir, events, nil, false, false, progressCallback)
+	if err != nil {
+		t.Fatalf("Failed to generate daily files with progress: %v", err)
+	}
+
+	// Verify that progress callbacks were called
+	if len(progressMessages) == 0 {
+		t.Error("Expected progress callbacks to be called")
+	}
+
+	// Check that we got progress for generating files
+	foundGeneratingMessage := false
+	for _, msg := range progressMessages {
+		if strings.Contains(msg, "Generating") && strings.Contains(msg, "daily files") {
+			foundGeneratingMessage = true
+			break
+		}
+	}
+	if !foundGeneratingMessage {
+		t.Error("Expected to find 'Generating daily files' progress message")
+	}
+
+	// Check that progress counts make sense (should go from 0 to total)
+	if len(progressCounts) > 0 {
+		firstCount := progressCounts[0]
+		lastCount := progressCounts[len(progressCounts)-1]
+		lastTotal := progressTotals[len(progressTotals)-1]
+
+		if firstCount != 0 {
+			t.Errorf("Expected first progress count to be 0, got %d", firstCount)
+		}
+		if lastCount != lastTotal {
+			t.Errorf("Expected last progress count (%d) to equal total (%d)", lastCount, lastTotal)
 		}
 	}
 }

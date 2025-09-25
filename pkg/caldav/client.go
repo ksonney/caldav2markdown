@@ -3,6 +3,7 @@ package caldav
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -75,7 +76,18 @@ func (c *Client) GetEvents() ([]*ics.VEvent, error) {
 	return result.Events, nil
 }
 
+// ProgressCallback is a function type for reporting progress
+type ProgressCallback func(message string, current, total int)
+
 func (c *Client) GetEventsWithDeduplication() (*DeduplicationResult, error) {
+	return c.GetEventsWithDeduplicationAndProgress(nil)
+}
+
+func (c *Client) GetEventsWithDeduplicationAndProgress(progressCallback ProgressCallback) (*DeduplicationResult, error) {
+	if progressCallback != nil {
+		progressCallback("Connecting to CalDAV server...", 0, 1)
+	}
+
 	files, err := c.webdavClient.ReadDir("/")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list calendar files: %w", err)
@@ -86,9 +98,21 @@ func (c *Client) GetEventsWithDeduplication() (*DeduplicationResult, error) {
 	seenUIDs := make(map[string]bool)
 	duplicatesFound := 0
 
+	// Count .ics files for progress reporting
+	icsFiles := []os.FileInfo{}
 	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), ".ics") {
-			continue
+		if strings.HasSuffix(file.Name(), ".ics") {
+			icsFiles = append(icsFiles, file)
+		}
+	}
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Found %d calendar files to process", len(icsFiles)), 1, 1)
+	}
+
+	for i, file := range icsFiles {
+		if progressCallback != nil {
+			progressCallback(fmt.Sprintf("Processing %s", file.Name()), i+1, len(icsFiles))
 		}
 
 		content, err := c.webdavClient.Read(file.Name())

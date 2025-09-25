@@ -9,12 +9,14 @@ import (
 )
 
 type Config struct {
-	URL       string
-	Username  string
-	Password  string
-	Output    string
-	StartDate time.Time
-	EndDate   time.Time
+	URL             string
+	Username        string
+	Password        string
+	Output          string
+	StartDate       time.Time
+	EndDate         time.Time
+	UseDueDateEmoji bool
+	UseHashtags     bool
 }
 
 func LoadFromEnvFile(filename string) (*Config, error) {
@@ -65,6 +67,10 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			if endDate, err := time.Parse("2006-01-02", value); err == nil {
 				config.EndDate = endDate
 			}
+		case "USE_DUE_DATE_EMOJI":
+			config.UseDueDateEmoji = strings.ToLower(value) == "true" || value == "1"
+		case "USE_HASHTAGS":
+			config.UseHashtags = strings.ToLower(value) == "true" || value == "1"
 		}
 	}
 

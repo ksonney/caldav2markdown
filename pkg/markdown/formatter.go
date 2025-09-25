@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -161,6 +162,11 @@ func (em EventMarkdown) ToMarkdown() string {
 
 // ToListItem returns a compact markdown list format for daily aggregation
 func (em EventMarkdown) ToListItem() string {
+	return em.ToListItemWithOptions(false)
+}
+
+// ToListItemWithOptions returns a compact markdown list format with optional hashtags
+func (em EventMarkdown) ToListItemWithOptions(useHashtags bool) string {
 	var sb strings.Builder
 
 	if em.AllDay {
@@ -179,6 +185,10 @@ func (em EventMarkdown) ToListItem() string {
 
 	if em.Location != "" {
 		sb.WriteString(fmt.Sprintf(" @ %s", em.Location))
+	}
+
+	if useHashtags {
+		sb.WriteString(" #event")
 	}
 
 	if em.Description != "" {
@@ -260,6 +270,10 @@ func ConvertTodo(todo *ics.VTodo) TodoMarkdown {
 }
 
 func (tm TodoMarkdown) ToMarkdown() string {
+	return tm.ToMarkdownWithOptions(false, false)
+}
+
+func (tm TodoMarkdown) ToMarkdownWithOptions(useDueDateEmoji, useHashtags bool) string {
 	var sb strings.Builder
 
 	checkbox := "- [ ]"
@@ -274,11 +288,19 @@ func (tm TodoMarkdown) ToMarkdown() string {
 	}
 
 	if !tm.DueDate.IsZero() {
-		sb.WriteString(fmt.Sprintf(" - Due: %s", tm.DueDate.Format("2006-01-02")))
+		if useDueDateEmoji {
+			sb.WriteString(fmt.Sprintf(" - 📅 %s", tm.DueDate.Format("2006-01-02")))
+		} else {
+			sb.WriteString(fmt.Sprintf(" - Due: %s", tm.DueDate.Format("2006-01-02")))
+		}
 	}
 
 	if tm.Status != "" {
 		sb.WriteString(fmt.Sprintf(" - Status: %s", tm.Status))
+	}
+
+	if useHashtags {
+		sb.WriteString(" #task")
 	}
 
 	sb.WriteString("\n")
@@ -386,6 +408,197 @@ func parseICalDuration(durationStr string) (time.Duration, error) {
 	return time.Duration(sign) * totalDuration, nil
 }
 
+// ExistingDayContent represents parsed content from an existing daily markdown file
+type ExistingDayContent struct {
+	Title           string
+	AllDayEvents    []string
+	ScheduledEvents []string
+	Tasks           []string
+	OtherContent    []string // Any content that doesn't fit the standard sections
+}
+
+// parseExistingFile reads and parses an existing daily markdown file
+func parseExistingFile(filename string) (*ExistingDayContent, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // File doesn't exist, return nil (not an error)
+		}
+		return nil, fmt.Errorf("failed to open existing file %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	content := &ExistingDayContent{}
+	scanner := bufio.NewScanner(file)
+
+	currentSection := ""
+	var currentItems []string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Check for title (date header)
+		if strings.HasPrefix(line, "# ") {
+			content.Title = line
+			continue
+		}
+
+		// Check for section headers
+		if strings.HasPrefix(line, "## ") {
+			// Save previous section
+			savePreviousSection(content, currentSection, currentItems)
+
+			// Start new section
+			switch line {
+			case "## All Day Events":
+				currentSection = "allday"
+			case "## Scheduled Events":
+				currentSection = "scheduled"
+			case "## Tasks":
+				currentSection = "tasks"
+			default:
+				currentSection = "other"
+			}
+			currentItems = []string{}
+			continue
+		}
+
+		// Skip empty lines
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// Add line to current section
+		if currentSection != "" {
+			currentItems = append(currentItems, line)
+		} else {
+			// Content before any section headers
+			content.OtherContent = append(content.OtherContent, line)
+		}
+	}
+
+	// Save the last section
+	savePreviousSection(content, currentSection, currentItems)
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading file %s: %v", filename, err)
+	}
+
+	return content, nil
+}
+
+// savePreviousSection saves items to the appropriate section in ExistingDayContent
+func savePreviousSection(content *ExistingDayContent, section string, items []string) {
+	switch section {
+	case "allday":
+		content.AllDayEvents = items
+	case "scheduled":
+		content.ScheduledEvents = items
+	case "tasks":
+		content.Tasks = items
+	case "other":
+		content.OtherContent = append(content.OtherContent, items...)
+	}
+}
+
+// deduplicate removes duplicate items from a slice while preserving order
+func deduplicate(items []string) []string {
+	seen := make(map[string]bool)
+	result := []string{}
+
+	for _, item := range items {
+		// Normalize the item for comparison (trim whitespace)
+		normalized := strings.TrimSpace(item)
+		if normalized == "" {
+			continue
+		}
+
+		if !seen[normalized] {
+			seen[normalized] = true
+			result = append(result, item)
+		}
+	}
+
+	return result
+}
+
+// generateMergedContent creates the final markdown content by merging existing and new items
+func generateMergedContent(date string, existingContent *ExistingDayContent, newAllDay, newScheduled, newTasks []string) string {
+	var sb strings.Builder
+
+	// Generate title
+	if date == "0001-01-01" {
+		sb.WriteString("# Events (Date TBD)\n\n")
+	} else {
+		parsedDate, _ := time.Parse("2006-01-02", date)
+		sb.WriteString(fmt.Sprintf("# %s\n\n", parsedDate.Format("Monday, January 2, 2006")))
+	}
+
+	// Merge and deduplicate all-day events
+	var allDayItems []string
+	if existingContent != nil {
+		allDayItems = append(allDayItems, existingContent.AllDayEvents...)
+	}
+	allDayItems = append(allDayItems, newAllDay...)
+	allDayItems = deduplicate(allDayItems)
+
+	// Merge and deduplicate scheduled events
+	var scheduledItems []string
+	if existingContent != nil {
+		scheduledItems = append(scheduledItems, existingContent.ScheduledEvents...)
+	}
+	scheduledItems = append(scheduledItems, newScheduled...)
+	scheduledItems = deduplicate(scheduledItems)
+
+	// Merge and deduplicate tasks
+	var taskItems []string
+	if existingContent != nil {
+		taskItems = append(taskItems, existingContent.Tasks...)
+	}
+	taskItems = append(taskItems, newTasks...)
+	taskItems = deduplicate(taskItems)
+
+	// Add other content from existing file (if any)
+	if existingContent != nil && len(existingContent.OtherContent) > 0 {
+		for _, line := range existingContent.OtherContent {
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add all-day events section
+	if len(allDayItems) > 0 {
+		sb.WriteString("## All Day Events\n\n")
+		for _, item := range allDayItems {
+			sb.WriteString(item)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add scheduled events section
+	if len(scheduledItems) > 0 {
+		sb.WriteString("## Scheduled Events\n\n")
+		for _, item := range scheduledItems {
+			sb.WriteString(item)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add tasks section
+	if len(taskItems) > 0 {
+		sb.WriteString("## Tasks\n\n")
+		for _, item := range taskItems {
+			sb.WriteString(item)
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
 // formatDuration formats a duration in a human-readable way
 func formatDuration(d time.Duration) string {
 	if d < 0 {
@@ -404,10 +617,19 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
-// GenerateDailyFiles groups events by date and creates daily markdown files
-func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
+// ProgressCallback is a function type for reporting progress during file generation
+type ProgressCallback func(message string, current, total int)
+
+// GenerateDailyFilesWithTasks groups events and tasks by date and creates daily markdown files
+func GenerateDailyFilesWithTasks(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags bool) error {
+	return GenerateDailyFilesWithTasksAndProgress(outputDir, events, tasks, useDueDateEmoji, useHashtags, nil)
+}
+
+// GenerateDailyFilesWithTasksAndProgress groups events and tasks by date and creates daily markdown files with progress reporting
+func GenerateDailyFilesWithTasksAndProgress(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags bool, progressCallback ProgressCallback) error {
 	// Group events by date
 	eventsByDate := make(map[string][]EventMarkdown)
+	tasksByDate := make(map[string][]TodoMarkdown)
 
 	for _, event := range events {
 		var dateKey string
@@ -419,8 +641,47 @@ func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
 		eventsByDate[dateKey] = append(eventsByDate[dateKey], event)
 	}
 
+	// Group tasks by due date
+	for _, task := range tasks {
+		var dateKey string
+		if task.DueDate.IsZero() {
+			dateKey = "0001-01-01"
+		} else {
+			dateKey = task.DueDate.Format("2006-01-02")
+		}
+		tasksByDate[dateKey] = append(tasksByDate[dateKey], task)
+	}
+
+	// Get all unique dates from both events and tasks
+	allDates := make(map[string]bool)
+	for date := range eventsByDate {
+		allDates[date] = true
+	}
+	for date := range tasksByDate {
+		allDates[date] = true
+	}
+
+	// Convert to slice for indexed iteration
+	datesList := make([]string, 0, len(allDates))
+	for date := range allDates {
+		datesList = append(datesList, date)
+	}
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Generating %d daily files", len(datesList)), 0, len(datesList))
+	}
+
 	// Create a file for each date
-	for date, dayEvents := range eventsByDate {
+	for i, date := range datesList {
+		if progressCallback != nil {
+			if date == "0001-01-01" {
+				progressCallback("Processing items with no date", i+1, len(datesList))
+			} else {
+				progressCallback(fmt.Sprintf("Processing %s", date), i+1, len(datesList))
+			}
+		}
+		dayEvents := eventsByDate[date]
+		dayTasks := tasksByDate[date]
 		// Sort events by start time
 		var allDayEvents, timedEvents []EventMarkdown
 		for _, event := range dayEvents {
@@ -440,32 +701,19 @@ func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
 			}
 		}
 
-		// Generate daily markdown content
-		var sb strings.Builder
+		// Collect new content as strings for merging
+		var newAllDayEvents, newScheduledEvents, newTasks []string
 
-		// Format date as title
-		if date == "0001-01-01" {
-			sb.WriteString("# Events (Date TBD)\n\n")
-		} else {
-			parsedDate, _ := time.Parse("2006-01-02", date)
-			sb.WriteString(fmt.Sprintf("# %s\n\n", parsedDate.Format("Monday, January 2, 2006")))
+		for _, event := range allDayEvents {
+			newAllDayEvents = append(newAllDayEvents, strings.TrimSpace(event.ToListItemWithOptions(useHashtags)))
 		}
 
-		// Add all-day events first
-		if len(allDayEvents) > 0 {
-			sb.WriteString("## All Day Events\n\n")
-			for _, event := range allDayEvents {
-				sb.WriteString(event.ToListItem())
-			}
-			sb.WriteString("\n")
+		for _, event := range timedEvents {
+			newScheduledEvents = append(newScheduledEvents, strings.TrimSpace(event.ToListItemWithOptions(useHashtags)))
 		}
 
-		// Add timed events
-		if len(timedEvents) > 0 {
-			sb.WriteString("## Scheduled Events\n\n")
-			for _, event := range timedEvents {
-				sb.WriteString(event.ToListItem())
-			}
+		for _, task := range dayTasks {
+			newTasks = append(newTasks, strings.TrimSpace(task.ToMarkdownWithOptions(useDueDateEmoji, useHashtags)))
 		}
 
 		// Create directory structure
@@ -483,17 +731,39 @@ func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
 
 		filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", date))
 
-		// Write file
+		// Parse existing file if it exists
+		existingContent, err := parseExistingFile(filename)
+		if err != nil {
+			return fmt.Errorf("failed to parse existing file %s: %v", filename, err)
+		}
+
+		// Report if we found existing content to merge
+		if progressCallback != nil && existingContent != nil {
+			existingItems := len(existingContent.AllDayEvents) + len(existingContent.ScheduledEvents) + len(existingContent.Tasks)
+			if existingItems > 0 {
+				progressCallback(fmt.Sprintf("Merging with %d existing items", existingItems), i+1, len(datesList))
+			}
+		}
+
+		// Generate merged content
+		mergedContent := generateMergedContent(date, existingContent, newAllDayEvents, newScheduledEvents, newTasks)
+
+		// Write merged content to file
 		file, err := os.Create(filename)
 		if err != nil {
 			return fmt.Errorf("failed to create file %s: %v", filename, err)
 		}
 		defer file.Close()
 
-		if _, err := file.WriteString(sb.String()); err != nil {
+		if _, err := file.WriteString(mergedContent); err != nil {
 			return fmt.Errorf("failed to write content to %s: %v", filename, err)
 		}
 	}
 
 	return nil
+}
+
+// GenerateDailyFiles groups events by date and creates daily markdown files (backward compatibility)
+func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
+	return GenerateDailyFilesWithTasks(outputDir, events, nil, false, false)
 }

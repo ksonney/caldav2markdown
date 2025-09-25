@@ -134,6 +134,10 @@ func ConvertEvent(event *ics.VEvent) EventMarkdown {
 }
 
 func (em EventMarkdown) ToMarkdown() string {
+	return em.ToMarkdownWithOptions(false)
+}
+
+func (em EventMarkdown) ToMarkdownWithOptions(ignoreDescriptions bool) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("# %s\n\n", em.Title))
@@ -173,7 +177,7 @@ func (em EventMarkdown) ToMarkdown() string {
 		sb.WriteString(fmt.Sprintf("**Location:** %s\n\n", em.Location))
 	}
 
-	if em.Description != "" {
+	if !ignoreDescriptions && em.Description != "" {
 		sb.WriteString("## Description\n\n")
 		sb.WriteString(em.Description)
 		sb.WriteString("\n\n")
@@ -184,24 +188,30 @@ func (em EventMarkdown) ToMarkdown() string {
 
 // ToListItem returns a compact markdown list format for daily aggregation
 func (em EventMarkdown) ToListItem() string {
-	return em.ToListItemWithOptions(false)
+	return em.ToListItemWithOptions(false, false, false)
 }
 
-// ToListItemWithOptions returns a compact markdown list format with optional hashtags
-func (em EventMarkdown) ToListItemWithOptions(useHashtags bool) string {
+// ToListItemWithOptions returns a compact markdown list format with optional hashtags, descriptions, and checkboxes
+func (em EventMarkdown) ToListItemWithOptions(useHashtags, ignoreDescriptions, useCheckboxes bool) string {
 	var sb strings.Builder
 
+	// Choose prefix based on checkbox option
+	prefix := "-"
+	if useCheckboxes {
+		prefix = "- [ ]"
+	}
+
 	if em.AllDay {
-		sb.WriteString(fmt.Sprintf("- **%s** (All Day)", em.Title))
+		sb.WriteString(fmt.Sprintf("%s **%s** (All Day)", prefix, em.Title))
 	} else if em.StartTime.IsZero() {
-		sb.WriteString(fmt.Sprintf("- **%s** (Time TBD)", em.Title))
+		sb.WriteString(fmt.Sprintf("%s **%s** (Time TBD)", prefix, em.Title))
 	} else {
 		startTime := em.StartTime.Format("15:04")
 		if em.EndTime.IsZero() || em.EndTime.Equal(em.StartTime) {
-			sb.WriteString(fmt.Sprintf("- **%s** at %s", em.Title, startTime))
+			sb.WriteString(fmt.Sprintf("%s **%s** at %s", prefix, em.Title, startTime))
 		} else {
 			endTime := em.EndTime.Format("15:04")
-			sb.WriteString(fmt.Sprintf("- **%s** (%s - %s)", em.Title, startTime, endTime))
+			sb.WriteString(fmt.Sprintf("%s **%s** (%s - %s)", prefix, em.Title, startTime, endTime))
 		}
 	}
 
@@ -213,7 +223,7 @@ func (em EventMarkdown) ToListItemWithOptions(useHashtags bool) string {
 		sb.WriteString(" #event")
 	}
 
-	if em.Description != "" {
+	if !ignoreDescriptions && em.Description != "" {
 		// Add description on a new line with indentation
 		sb.WriteString(fmt.Sprintf("\n  %s", strings.ReplaceAll(em.Description, "\n", "\n  ")))
 	}
@@ -304,10 +314,10 @@ func ConvertTodo(todo *ics.VTodo) TodoMarkdown {
 }
 
 func (tm TodoMarkdown) ToMarkdown() string {
-	return tm.ToMarkdownWithOptions(false, false)
+	return tm.ToMarkdownWithOptions(false, false, false)
 }
 
-func (tm TodoMarkdown) ToMarkdownWithOptions(useDueDateEmoji, useHashtags bool) string {
+func (tm TodoMarkdown) ToMarkdownWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions bool) string {
 	var sb strings.Builder
 
 	checkbox := "- [ ]"
@@ -339,7 +349,7 @@ func (tm TodoMarkdown) ToMarkdownWithOptions(useDueDateEmoji, useHashtags bool) 
 
 	sb.WriteString("\n")
 
-	if tm.Description != "" {
+	if !ignoreDescriptions && tm.Description != "" {
 		sb.WriteString(fmt.Sprintf("  %s\n", tm.Description))
 	}
 
@@ -901,6 +911,16 @@ func GenerateDailyFilesWithTasks(outputDir string, events []EventMarkdown, tasks
 	return GenerateDailyFilesWithTasksAndProgress(outputDir, events, tasks, useDueDateEmoji, useHashtags, nil)
 }
 
+// GenerateDailyFilesWithTasksAndOptions groups events and tasks by date and creates daily markdown files with full options
+func GenerateDailyFilesWithTasksAndOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions bool) error {
+	return GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, nil)
+}
+
+// GenerateDailyFilesWithCompleteOptions groups events and tasks by date and creates daily markdown files with all available options
+func GenerateDailyFilesWithCompleteOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes bool) error {
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, nil)
+}
+
 // GenerateDailyFilesWithTasksAndFrontmatter groups events and tasks by date and creates daily markdown files with frontmatter
 func GenerateDailyFilesWithTasksAndFrontmatter(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter bool) error {
 	return GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, nil)
@@ -913,6 +933,16 @@ func GenerateDailyFilesWithTasksAndProgress(outputDir string, events []EventMark
 
 // GenerateDailyFilesWithTasksProgressAndFrontmatter groups events and tasks by date and creates daily markdown files with progress reporting and frontmatter support
 func GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter bool, progressCallback ProgressCallback) error {
+	return GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, false, progressCallback)
+}
+
+// GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions groups events and tasks by date and creates daily markdown files with full options
+func GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions bool, progressCallback ProgressCallback) error {
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, false, progressCallback)
+}
+
+// GenerateDailyFilesWithAllOptions groups events and tasks by date and creates daily markdown files with complete control over formatting
+func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes bool, progressCallback ProgressCallback) error {
 	// Group events by date
 	eventsByDate := make(map[string][]EventMarkdown)
 	tasksByDate := make(map[string][]TodoMarkdown)
@@ -991,15 +1021,15 @@ func GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir string, events 
 		var newAllDayEvents, newScheduledEvents, newTasks []string
 
 		for _, event := range allDayEvents {
-			newAllDayEvents = append(newAllDayEvents, strings.TrimSpace(event.ToListItemWithOptions(useHashtags)))
+			newAllDayEvents = append(newAllDayEvents, strings.TrimSpace(event.ToListItemWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes)))
 		}
 
 		for _, event := range timedEvents {
-			newScheduledEvents = append(newScheduledEvents, strings.TrimSpace(event.ToListItemWithOptions(useHashtags)))
+			newScheduledEvents = append(newScheduledEvents, strings.TrimSpace(event.ToListItemWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes)))
 		}
 
 		for _, task := range dayTasks {
-			newTasks = append(newTasks, strings.TrimSpace(task.ToMarkdownWithOptions(useDueDateEmoji, useHashtags)))
+			newTasks = append(newTasks, strings.TrimSpace(task.ToMarkdownWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions)))
 		}
 
 		// Create directory structure

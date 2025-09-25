@@ -33,7 +33,7 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 - **Daily Aggregation**: Events and tasks organized in `YYYY-MM-DD.md` files
 - **YAML Frontmatter**: Optional structured metadata for static site generators
 - **Smart File Merging**: Preserves manual edits while adding new calendar data
-- **Flexible Formatting**: Customizable emoji, hashtags, and display options
+- **Flexible Formatting**: Customizable emoji, hashtags, display options, optional description exclusion, and event checkboxes
 - **Directory Structure**: Organized in `YYYY/MM/` hierarchy for easy navigation
 
 ### 📅 Calendar Features
@@ -142,6 +142,8 @@ OUTPUT_DIR=./events
 USE_DUE_DATE_EMOJI=true
 USE_HASHTAGS=true
 USE_FRONTMATTER=true
+IGNORE_DESCRIPTIONS=false
+EVENT_CHECKBOXES=false
 
 # Date Filtering
 START_DATE=2024-01-01
@@ -298,6 +300,8 @@ bin/caldav2markdown -test
 - `-emoji`: Use 📅 emoji for due dates in tasks
 - `-hashtags`: Add #event and #task hashtags
 - `-frontmatter`: Add YAML frontmatter to markdown files
+- `-ignore-descriptions`: Ignore event and task descriptions in output
+- `-event-checkboxes`: Add checkboxes to events for task-like formatting
 
 **Date Filtering:**
 - `-start`: Start date for event filtering (YYYY-MM-DD format)
@@ -328,7 +332,7 @@ bin/caldav2markdown \
   -output "./events" \
   -config ".env" \
   -start "2024-01-01" -end "2024-12-31" \
-  -emoji -hashtags -frontmatter \
+  -emoji -hashtags -frontmatter -ignore-descriptions -event-checkboxes \
   -server-side-filtering \
   -discover-calendars \
   -include-calendars "Work,Personal" \
@@ -431,6 +435,44 @@ The application intelligently merges content when files already exist:
 - [ ] **Review PR** - Due: 2024-01-20
 - **Team Meeting** (09:00 - 10:00) @ Room A
 ```
+
+#### Description Handling
+
+**With Descriptions (default)**:
+```markdown
+- **Project Review** (14:00 - 15:30) @ Room B #event
+  Quarterly project progress review with stakeholders
+- [ ] **Complete Report** - 📅 2024-01-20 #task
+  Finish the quarterly report analysis and submit for review
+```
+
+**Without Descriptions (`-ignore-descriptions` flag or `IGNORE_DESCRIPTIONS=true`)**:
+```markdown
+- **Project Review** (14:00 - 15:30) @ Room B #event
+- [ ] **Complete Report** - 📅 2024-01-20 #task
+```
+
+Use the ignore descriptions option for cleaner, more concise output when detailed descriptions aren't needed.
+
+#### Event Checkboxes
+
+**Regular Events (default)**:
+```markdown
+- **Team Meeting** (09:00 - 10:00) @ Conference Room A #event
+- **Project Review** (14:00 - 15:30) @ Room B #event
+```
+
+**Events with Checkboxes (`-event-checkboxes` flag or `EVENT_CHECKBOXES=true`)**:
+```markdown
+- [ ] **Team Meeting** (09:00 - 10:00) @ Conference Room A #event
+- [ ] **Project Review** (14:00 - 15:30) @ Room B #event
+```
+
+Event checkboxes are useful for:
+- **Task-like Event Tracking**: Treat events as actionable items that can be checked off
+- **Meeting Attendance**: Track which meetings you've attended
+- **Event Completion**: Mark events as done in your workflow
+- **Unified Format**: Maintain consistency with task checkboxes
 
 ## Date/Time Format Support
 

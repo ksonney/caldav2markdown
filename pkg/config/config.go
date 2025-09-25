@@ -26,9 +26,12 @@ type Config struct {
 	Output          string
 	StartDate       time.Time
 	EndDate         time.Time
-	UseDueDateEmoji bool
-	UseHashtags     bool
-	UseFrontmatter  bool
+	UseDueDateEmoji   bool
+	UseHashtags       bool
+	UseFrontmatter    bool
+	IgnoreDescriptions bool
+	EventCheckboxes   bool
+	ObsidianTasks     bool
 	// Performance options
 	UseServerSideFiltering bool
 	// Multi-calendar options
@@ -110,6 +113,12 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.UseHashtags = strings.ToLower(value) == "true" || value == "1"
 		case "USE_FRONTMATTER":
 			config.UseFrontmatter = strings.ToLower(value) == "true" || value == "1"
+		case "IGNORE_DESCRIPTIONS":
+			config.IgnoreDescriptions = strings.ToLower(value) == "true" || value == "1"
+		case "EVENT_CHECKBOXES":
+			config.EventCheckboxes = strings.ToLower(value) == "true" || value == "1"
+		case "OBSIDIAN_TASKS":
+			config.ObsidianTasks = strings.ToLower(value) == "true" || value == "1"
 		case "USE_SERVER_SIDE_FILTERING":
 			config.UseServerSideFiltering = strings.ToLower(value) == "true" || value == "1"
 		case "DISCOVER_CALENDARS":
@@ -188,7 +197,22 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
+	// Apply Obsidian tasks preset if enabled
+	config.ApplyObsidianTasksPreset()
+
 	return config, nil
+}
+
+// ApplyObsidianTasksPreset enables all formatting options that work well with Obsidian tasks
+// Only enables options that weren't explicitly set to false
+func (c *Config) ApplyObsidianTasksPreset() {
+	if c.ObsidianTasks {
+		c.EventCheckboxes = true
+		c.IgnoreDescriptions = true
+		c.UseFrontmatter = true
+		c.UseDueDateEmoji = true
+		c.UseHashtags = true
+	}
 }
 
 func (c *Config) Validate() error {

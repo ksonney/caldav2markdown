@@ -29,6 +29,9 @@ func main() {
 		useDueDateEmoji        = flag.Bool("emoji", false, "Use 📅 emoji for due dates in tasks")
 		useHashtags            = flag.Bool("hashtags", false, "Add #event and #task hashtags")
 		useFrontmatter         = flag.Bool("frontmatter", false, "Add YAML frontmatter to markdown files")
+		ignoreDescriptions     = flag.Bool("ignore-descriptions", false, "Ignore event and task descriptions in output")
+		eventCheckboxes        = flag.Bool("event-checkboxes", false, "Add checkboxes to events for task-like formatting")
+		obsidianTasks          = flag.Bool("obsidian-tasks", false, "Enable Obsidian tasks preset (event checkboxes, ignore descriptions, frontmatter, emojis, hashtags)")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -84,6 +87,15 @@ func main() {
 	}
 	if *useFrontmatter {
 		cfg.UseFrontmatter = true
+	}
+	if *ignoreDescriptions {
+		cfg.IgnoreDescriptions = true
+	}
+	if *eventCheckboxes {
+		cfg.EventCheckboxes = true
+	}
+	if *obsidianTasks {
+		cfg.ObsidianTasks = true
 	}
 	if *useServerSideFiltering {
 		cfg.UseServerSideFiltering = true
@@ -184,6 +196,9 @@ func main() {
 		cfg.EndDate = time.Now().AddDate(2, 0, 0)
 	}
 
+	// Apply Obsidian tasks preset if enabled (applies to both config file and CLI flags)
+	cfg.ApplyObsidianTasksPreset()
+
 	if err := cfg.Validate(); err != nil {
 		fmt.Println("Usage: caldav2markdown [options]")
 		fmt.Println("")
@@ -226,6 +241,9 @@ func main() {
 		fmt.Println("  -emoji            Use 📅 emoji for due dates in tasks")
 		fmt.Println("  -hashtags         Add #event and #task hashtags")
 		fmt.Println("  -frontmatter      Add YAML frontmatter to markdown files")
+		fmt.Println("  -ignore-descriptions  Ignore event and task descriptions in output")
+		fmt.Println("  -event-checkboxes     Add checkboxes to events for task-like formatting")
+		fmt.Println("  -obsidian-tasks   Enable Obsidian preset (event checkboxes + ignore descriptions + frontmatter + emojis + hashtags)")
 		fmt.Println("")
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -309,7 +327,7 @@ func main() {
 
 	// Generate daily aggregated files with both events and tasks
 	fmt.Println("Generating daily files...")
-	if err := markdown.GenerateDailyFilesWithTasksProgressAndFrontmatter(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, progressCallback); err != nil {
+	if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, progressCallback); err != nil {
 		fmt.Printf("\nFailed to generate daily files: %v\n", err)
 		os.Exit(1)
 	}

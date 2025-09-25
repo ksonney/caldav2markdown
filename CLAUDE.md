@@ -127,6 +127,9 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
   - Optional 📅 emoji for due dates (controlled by `USE_DUE_DATE_EMOJI` config)
   - Optional #event and #task hashtags (controlled by `USE_HASHTAGS` config)
   - YAML frontmatter with comprehensive metadata (controlled by `USE_FRONTMATTER` config)
+  - Optional description exclusion for cleaner output (controlled by `IGNORE_DESCRIPTIONS` config)
+  - Optional event checkboxes for task-like formatting (controlled by `EVENT_CHECKBOXES` config)
+  - **Obsidian Tasks Preset**: One-click configuration for Obsidian compatibility (controlled by `OBSIDIAN_TASKS` config)
 - **Todo Integration**: Tasks are organized by due date and included in daily files rather than separate files
 
 #### Multi-Calendar Support
@@ -224,6 +227,7 @@ INCLUDE_CALENDARS=Work,Personal,Family
 EXCLUDE_CALENDARS=Archive,Test,Spam
 USE_HASHTAGS=true
 USE_FRONTMATTER=true
+EVENT_CHECKBOXES=true
 ```
 
 #### Traditional CalDAV Server
@@ -232,6 +236,7 @@ CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
 CALDAV_USERNAME=username
 CALDAV_PASSWORD=password
 USE_DUE_DATE_EMOJI=true
+IGNORE_DESCRIPTIONS=true
 OUTPUT_DIR=./calendar-notes
 ```
 

@@ -1,12 +1,37 @@
 package rrule
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/arran4/golang-ical"
 )
+
+// parseICalDateTime attempts to parse an iCalendar date/time string in various formats
+func parseICalDateTime(value string) (time.Time, bool, error) {
+	if strings.HasPrefix(value, "0001") {
+		return time.Time{}, false, nil
+	}
+
+	// Try UTC format with Z suffix first
+	if t, err := time.Parse("20060102T150405Z", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try local time format without Z suffix
+	if t, err := time.Parse("20060102T150405", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try date-only format
+	if t, err := time.Parse("20060102", value); err == nil {
+		return t, true, nil // true indicates all-day
+	}
+
+	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s", value)
+}
 
 // RecurrenceRule represents a parsed RRULE
 type RecurrenceRule struct {
@@ -47,9 +72,7 @@ func ParseRRule(rruleStr string) (*RecurrenceRule, error) {
 				rule.Count = count
 			}
 		case "UNTIL":
-			if until, err := time.Parse("20060102T150405Z", value); err == nil {
-				rule.Until = until
-			} else if until, err := time.Parse("20060102", value); err == nil {
+			if until, _, err := parseICalDateTime(value); err == nil {
 				rule.Until = until
 			}
 		case "BYMONTH":
@@ -106,11 +129,9 @@ func ExpandEvent(event *ics.VEvent, maxOccurrences int, startDate, endDate time.
 	if strings.HasPrefix(dtstart.Value, "0001") {
 		// Allow processing of 0001-01-01 events but don't expand them
 		return []*ics.VEvent{event}, nil
-	} else if t, err := time.Parse("20060102T150405Z", dtstart.Value); err == nil {
+	} else if t, isAllDay, err := parseICalDateTime(dtstart.Value); err == nil {
 		startTime = t
-	} else if t, err := time.Parse("20060102", dtstart.Value); err == nil {
-		startTime = t
-		allDay = true
+		allDay = isAllDay
 	} else {
 		return []*ics.VEvent{event}, nil
 	}
@@ -118,7 +139,7 @@ func ExpandEvent(event *ics.VEvent, maxOccurrences int, startDate, endDate time.
 	// Get the duration of the event
 	var duration time.Duration
 	if dtend := event.GetProperty(ics.ComponentPropertyDtEnd); dtend != nil && !allDay {
-		if endTime, err := time.Parse("20060102T150405Z", dtend.Value); err == nil {
+		if endTime, _, err := parseICalDateTime(dtend.Value); err == nil {
 			duration = endTime.Sub(startTime)
 		}
 	}

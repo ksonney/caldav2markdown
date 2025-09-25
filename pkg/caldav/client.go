@@ -11,6 +11,30 @@ import (
 	"caldav2markdown/pkg/rrule"
 )
 
+// parseICalDateTime attempts to parse an iCalendar date/time string in various formats
+func parseICalDateTime(value string) (time.Time, bool, error) {
+	if strings.HasPrefix(value, "0001") {
+		return time.Time{}, false, nil
+	}
+
+	// Try UTC format with Z suffix first
+	if t, err := time.Parse("20060102T150405Z", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try local time format without Z suffix
+	if t, err := time.Parse("20060102T150405", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try date-only format
+	if t, err := time.Parse("20060102", value); err == nil {
+		return t, true, nil // true indicates all-day
+	}
+
+	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s", value)
+}
+
 type Client struct {
 	webdavClient *gowebdav.Client
 	baseURL      string
@@ -147,17 +171,16 @@ func (c *Client) getTodoUID(todo *ics.VTodo) string {
 func (c *Client) isEventInDateRange(event *ics.VEvent) bool {
 	if dtstart := event.GetProperty(ics.ComponentPropertyDtStart); dtstart != nil {
 		var startTime time.Time
-		var err error
 
 		// Handle special case of 0001-01-01 dates - treat as valid but use zero time for comparison
 		if strings.HasPrefix(dtstart.Value, "0001") {
 			startTime = time.Time{} // Zero time
 		} else {
-			if startTime, err = time.Parse("20060102T150405Z", dtstart.Value); err != nil {
-				if startTime, err = time.Parse("20060102", dtstart.Value); err != nil {
-					// If we can't parse the date, include the event anyway (don't filter out invalid dates)
-					return true
-				}
+			if t, _, parseErr := parseICalDateTime(dtstart.Value); parseErr == nil {
+				startTime = t
+			} else {
+				// If we can't parse the date, include the event anyway (don't filter out invalid dates)
+				return true
 			}
 		}
 
@@ -178,11 +201,11 @@ func (c *Client) isEventInDateRange(event *ics.VEvent) bool {
 			if strings.HasPrefix(dtend.Value, "0001") {
 				endTime = time.Time{} // Zero time
 			} else {
-				if endTime, err = time.Parse("20060102T150405Z", dtend.Value); err != nil {
-					if endTime, err = time.Parse("20060102", dtend.Value); err != nil {
-						// If we can't parse end time, include the event anyway (don't filter out invalid dates)
-						return true
-					}
+				if t, _, parseErr := parseICalDateTime(dtend.Value); parseErr == nil {
+					endTime = t
+				} else {
+					// If we can't parse end time, include the event anyway (don't filter out invalid dates)
+					return true
 				}
 			}
 

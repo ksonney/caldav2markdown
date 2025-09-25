@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"caldav2markdown/pkg/caldav"
@@ -141,31 +140,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Found %d unique events, converting to markdown...\n", len(result.Events))
+	fmt.Printf("Found %d unique events, converting to daily markdown files...\n", len(result.Events))
 
-	for i, event := range result.Events {
-		eventMd := markdown.ConvertEvent(event)
-		filename := markdown.GenerateFilename(cfg.Output, eventMd)
-
-		// Ensure the directory structure exists
-		if err := markdown.EnsureDirectoryExists(filename); err != nil {
-			fmt.Printf("Warning: failed to create directory for %s: %v\n", filename, err)
-			continue
-		}
-
-		if err := writeMarkdownFile(filename, eventMd.ToMarkdown()); err != nil {
-			fmt.Printf("Warning: failed to write file %s: %v\n", filename, err)
-			continue
-		}
-
-		// Show relative path from output directory for better readability
-		relativePath, _ := filepath.Rel(cfg.Output, filename)
-		fmt.Printf("Written: %s\n", relativePath)
-
-		if (i+1)%10 == 0 {
-			fmt.Printf("Progress: %d/%d events processed\n", i+1, len(result.Events))
-		}
+	// Convert events to EventMarkdown format
+	var eventMarkdowns []markdown.EventMarkdown
+	for _, event := range result.Events {
+		eventMarkdowns = append(eventMarkdowns, markdown.ConvertEvent(event))
 	}
+
+	// Generate daily aggregated files
+	if err := markdown.GenerateDailyFiles(cfg.Output, eventMarkdowns); err != nil {
+		fmt.Printf("Failed to generate daily files: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Count unique dates for reporting
+	dateCount := make(map[string]bool)
+	for _, eventMd := range eventMarkdowns {
+		var dateKey string
+		if eventMd.StartTime.IsZero() {
+			dateKey = "0001-01-01"
+		} else {
+			dateKey = eventMd.StartTime.Format("2006-01-02")
+		}
+		dateCount[dateKey] = true
+	}
+
+	fmt.Printf("Successfully created %d daily files for %d events\n", len(dateCount), len(result.Events))
 
 	if len(result.Todos) > 0 {
 		fmt.Printf("Found %d todos, converting to tasks.md...\n", len(result.Todos))
@@ -182,7 +183,7 @@ func main() {
 		}
 	}
 
-	fmt.Printf("Successfully converted %d events to markdown files in %s\n", len(result.Events), cfg.Output)
+	fmt.Printf("Successfully converted %d events to daily markdown files in %s\n", len(result.Events), cfg.Output)
 }
 
 func writeMarkdownFile(filename, content string) error {

@@ -11,6 +11,30 @@ import (
 	"github.com/arran4/golang-ical"
 )
 
+// parseICalDateTime attempts to parse an iCalendar date/time string in various formats
+func parseICalDateTime(value string) (time.Time, bool, error) {
+	if strings.HasPrefix(value, "0001") {
+		return time.Time{}, false, nil
+	}
+
+	// Try UTC format with Z suffix first
+	if t, err := time.Parse("20060102T150405Z", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try local time format without Z suffix
+	if t, err := time.Parse("20060102T150405", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try date-only format
+	if t, err := time.Parse("20060102", value); err == nil {
+		return t, true, nil // true indicates all-day
+	}
+
+	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s", value)
+}
+
 type EventMarkdown struct {
 	Title       string
 	Description string
@@ -45,26 +69,20 @@ func ConvertEvent(event *ics.VEvent) EventMarkdown {
 	}
 
 	if dtstart := event.GetProperty(ics.ComponentPropertyDtStart); dtstart != nil {
-		if strings.HasPrefix(dtstart.Value, "0001") {
-			// Keep 0001-01-01 dates as zero time but allow processing
-			md.StartTime = time.Time{}
-		} else if startTime, err := time.Parse("20060102T150405Z", dtstart.Value); err == nil {
+		if startTime, allDay, err := parseICalDateTime(dtstart.Value); err == nil {
 			md.StartTime = startTime
-		} else if startTime, err := time.Parse("20060102", dtstart.Value); err == nil {
-			md.StartTime = startTime
-			md.AllDay = true
+			if allDay {
+				md.AllDay = true
+			}
 		}
 	}
 
 	if dtend := event.GetProperty(ics.ComponentPropertyDtEnd); dtend != nil {
-		if strings.HasPrefix(dtend.Value, "0001") {
-			// Keep 0001-01-01 dates as zero time but allow processing
-			md.EndTime = time.Time{}
-		} else if endTime, err := time.Parse("20060102T150405Z", dtend.Value); err == nil {
+		if endTime, allDay, err := parseICalDateTime(dtend.Value); err == nil {
 			md.EndTime = endTime
-		} else if endTime, err := time.Parse("20060102", dtend.Value); err == nil {
-			md.EndTime = endTime
-			md.AllDay = true
+			if allDay {
+				md.AllDay = true
+			}
 		}
 	}
 
@@ -141,6 +159,37 @@ func (em EventMarkdown) ToMarkdown() string {
 	return sb.String()
 }
 
+// ToListItem returns a compact markdown list format for daily aggregation
+func (em EventMarkdown) ToListItem() string {
+	var sb strings.Builder
+
+	if em.AllDay {
+		sb.WriteString(fmt.Sprintf("- **%s** (All Day)", em.Title))
+	} else if em.StartTime.IsZero() {
+		sb.WriteString(fmt.Sprintf("- **%s** (Time TBD)", em.Title))
+	} else {
+		startTime := em.StartTime.Format("15:04")
+		if em.EndTime.IsZero() || em.EndTime.Equal(em.StartTime) {
+			sb.WriteString(fmt.Sprintf("- **%s** at %s", em.Title, startTime))
+		} else {
+			endTime := em.EndTime.Format("15:04")
+			sb.WriteString(fmt.Sprintf("- **%s** (%s - %s)", em.Title, startTime, endTime))
+		}
+	}
+
+	if em.Location != "" {
+		sb.WriteString(fmt.Sprintf(" @ %s", em.Location))
+	}
+
+	if em.Description != "" {
+		// Add description on a new line with indentation
+		sb.WriteString(fmt.Sprintf("\n  %s", strings.ReplaceAll(em.Description, "\n", "\n  ")))
+	}
+
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 func (em EventMarkdown) Filename() string {
 	safeTitle := strings.ReplaceAll(em.Title, "/", "-")
 	safeTitle = strings.ReplaceAll(safeTitle, "\\", "-")
@@ -202,12 +251,7 @@ func ConvertTodo(todo *ics.VTodo) TodoMarkdown {
 	}
 
 	if due := todo.GetProperty(ics.ComponentPropertyDue); due != nil {
-		if strings.HasPrefix(due.Value, "0001") {
-			// Keep 0001-01-01 dates as zero time but allow processing
-			md.DueDate = time.Time{}
-		} else if dueTime, err := time.Parse("20060102T150405Z", due.Value); err == nil {
-			md.DueDate = dueTime
-		} else if dueTime, err := time.Parse("20060102", due.Value); err == nil {
+		if dueTime, _, err := parseICalDateTime(due.Value); err == nil {
 			md.DueDate = dueTime
 		}
 	}
@@ -358,4 +402,98 @@ func formatDuration(d time.Duration) string {
 	} else {
 		return fmt.Sprintf("%dh %dm", hours, minutes)
 	}
+}
+
+// GenerateDailyFiles groups events by date and creates daily markdown files
+func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
+	// Group events by date
+	eventsByDate := make(map[string][]EventMarkdown)
+
+	for _, event := range events {
+		var dateKey string
+		if event.StartTime.IsZero() {
+			dateKey = "0001-01-01"
+		} else {
+			dateKey = event.StartTime.Format("2006-01-02")
+		}
+		eventsByDate[dateKey] = append(eventsByDate[dateKey], event)
+	}
+
+	// Create a file for each date
+	for date, dayEvents := range eventsByDate {
+		// Sort events by start time
+		var allDayEvents, timedEvents []EventMarkdown
+		for _, event := range dayEvents {
+			if event.AllDay || event.StartTime.IsZero() {
+				allDayEvents = append(allDayEvents, event)
+			} else {
+				timedEvents = append(timedEvents, event)
+			}
+		}
+
+		// Simple sort by start time for timed events
+		for i := 0; i < len(timedEvents)-1; i++ {
+			for j := i + 1; j < len(timedEvents); j++ {
+				if timedEvents[i].StartTime.After(timedEvents[j].StartTime) {
+					timedEvents[i], timedEvents[j] = timedEvents[j], timedEvents[i]
+				}
+			}
+		}
+
+		// Generate daily markdown content
+		var sb strings.Builder
+
+		// Format date as title
+		if date == "0001-01-01" {
+			sb.WriteString("# Events (Date TBD)\n\n")
+		} else {
+			parsedDate, _ := time.Parse("2006-01-02", date)
+			sb.WriteString(fmt.Sprintf("# %s\n\n", parsedDate.Format("Monday, January 2, 2006")))
+		}
+
+		// Add all-day events first
+		if len(allDayEvents) > 0 {
+			sb.WriteString("## All Day Events\n\n")
+			for _, event := range allDayEvents {
+				sb.WriteString(event.ToListItem())
+			}
+			sb.WriteString("\n")
+		}
+
+		// Add timed events
+		if len(timedEvents) > 0 {
+			sb.WriteString("## Scheduled Events\n\n")
+			for _, event := range timedEvents {
+				sb.WriteString(event.ToListItem())
+			}
+		}
+
+		// Create directory structure
+		var dirPath, filename string
+		if date == "0001-01-01" {
+			dirPath = filepath.Join(outputDir, "0001", "01")
+		} else {
+			parsedDate, _ := time.Parse("2006-01-02", date)
+			dirPath = filepath.Join(outputDir, parsedDate.Format("2006"), parsedDate.Format("01"))
+		}
+
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+		}
+
+		filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", date))
+
+		// Write file
+		file, err := os.Create(filename)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %v", filename, err)
+		}
+		defer file.Close()
+
+		if _, err := file.WriteString(sb.String()); err != nil {
+			return fmt.Errorf("failed to write content to %s: %v", filename, err)
+		}
+	}
+
+	return nil
 }

@@ -79,7 +79,7 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
    - Extract VTODO items
    - Deduplicate by UID across all calendar files and expanded instances
 4. **Output Generation**:
-   - Individual markdown files for each event: `YYYY-MM-DD_Event-Title.md`
+   - Daily aggregated markdown files: `YYYY-MM-DD.md` containing all events for that day as a markdown list
    - Single `tasks.md` file containing all todos as checkboxes
 
 ### Key Implementation Details
@@ -88,9 +88,10 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Zero Date Handling**: Events and todos with 0001-01-01 dates (placeholder/unspecified dates) are now processed and included
 - **Recurring Events**: Full RRULE support for expanding recurring events including FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTH
 - **Deduplication**: Uses UID properties to prevent duplicate events/todos across all calendar files and recurring event instances
-- **Enhanced Time Parsing**: Supports both timed events (`20060102T150405Z`) and all-day events (`20060102`) with automatic end-time calculation
+- **Enhanced Time Parsing**: Supports multiple iCalendar date/time formats including UTC times with Z suffix (`20060102T150405Z`), local times without Z suffix (`20060102T150405`), and all-day events (`20060102`) with automatic end-time calculation
 - **Duration Handling**: Automatic calculation of event durations, with 1-hour default for events without end times
-- **Directory Structure**: Markdown files organized in YYYY/MM directory tree, with zero-date events in `0001/01/`
+- **Directory Structure**: Daily markdown files organized in YYYY/MM directory tree, with zero-date events in `0001/01/`
+- **Daily Aggregation**: Events are grouped by date and saved as daily markdown files with list format, including separate sections for all-day and scheduled events
 - **Todo Format**: Uses markdown checkboxes with priority, due dates, completion status, and descriptions
 - **iCalendar DURATION Support**: Parses RFC 5545 DURATION properties (e.g., `PT2H30M`)
 
@@ -105,6 +106,8 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Improved Output**: Markdown now shows duration calculations and better formatting for all-day events and zero-date events
 - **Test Coverage**: Added comprehensive unit tests for formatter functionality (`pkg/markdown/formatter_test.go`)
 - **Date Range Configuration**: Configurable start and end dates via environment variables (`START_DATE`, `END_DATE`)
+- **Improved Date/Time Parsing**: Enhanced parsing logic to handle iCalendar date/time formats without Z suffix, supporting both UTC (`20060102T150405Z`) and local time (`20060102T150405`) formats across all components (VEVENT, VTODO, RRULE)
+- **Daily Event Aggregation**: Changed from individual event files to daily aggregated files (`YYYY-MM-DD.md`) containing all events for a specific date in markdown list format, with automatic sorting and separate sections for all-day and scheduled events
 
 ### Dependencies
 

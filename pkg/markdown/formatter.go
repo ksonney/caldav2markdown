@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/arran4/golang-ical"
+	"gopkg.in/yaml.v3"
 )
 
 // parseICalDateTime attempts to parse an iCalendar date/time string in various formats
@@ -43,6 +44,9 @@ type EventMarkdown struct {
 	StartTime   time.Time
 	EndTime     time.Time
 	AllDay      bool
+	UID         string
+	Status      string
+	Categories  []string
 }
 
 type TodoMarkdown struct {
@@ -52,6 +56,8 @@ type TodoMarkdown struct {
 	Priority    string
 	DueDate     time.Time
 	Completed   bool
+	UID         string
+	Categories  []string
 }
 
 func ConvertEvent(event *ics.VEvent) EventMarkdown {
@@ -67,6 +73,22 @@ func ConvertEvent(event *ics.VEvent) EventMarkdown {
 
 	if location := event.GetProperty(ics.ComponentPropertyLocation); location != nil {
 		md.Location = location.Value
+	}
+
+	if uid := event.GetProperty(ics.ComponentPropertyUniqueId); uid != nil {
+		md.UID = uid.Value
+	}
+
+	if status := event.GetProperty(ics.ComponentPropertyStatus); status != nil {
+		md.Status = status.Value
+	}
+
+	// Parse categories
+	if categories := event.GetProperty(ics.ComponentPropertyCategories); categories != nil {
+		md.Categories = strings.Split(categories.Value, ",")
+		for i, cat := range md.Categories {
+			md.Categories[i] = strings.TrimSpace(cat)
+		}
 	}
 
 	if dtstart := event.GetProperty(ics.ComponentPropertyDtStart); dtstart != nil {
@@ -263,6 +285,18 @@ func ConvertTodo(todo *ics.VTodo) TodoMarkdown {
 	if due := todo.GetProperty(ics.ComponentPropertyDue); due != nil {
 		if dueTime, _, err := parseICalDateTime(due.Value); err == nil {
 			md.DueDate = dueTime
+		}
+	}
+
+	if uid := todo.GetProperty(ics.ComponentPropertyUniqueId); uid != nil {
+		md.UID = uid.Value
+	}
+
+	// Parse categories
+	if categories := todo.GetProperty(ics.ComponentPropertyCategories); categories != nil {
+		md.Categories = strings.Split(categories.Value, ",")
+		for i, cat := range md.Categories {
+			md.Categories[i] = strings.TrimSpace(cat)
 		}
 	}
 
@@ -522,9 +556,77 @@ func deduplicate(items []string) []string {
 	return result
 }
 
+// generateFrontmatter creates YAML frontmatter for a daily file
+func generateFrontmatter(date string, allDayCount, scheduledCount, taskCount int, events []EventMarkdown, tasks []TodoMarkdown, useFrontmatter bool) string {
+	if !useFrontmatter {
+		return ""
+	}
+
+	var title string
+	if date == "0001-01-01" {
+		title = "Events (Date TBD)"
+	} else {
+		if parsedDate, err := time.Parse("2006-01-02", date); err == nil {
+			title = parsedDate.Format("Monday, January 2, 2006")
+		} else {
+			title = date
+		}
+	}
+
+	// Collect unique tags from events and tasks
+	tagSet := make(map[string]bool)
+	for _, event := range events {
+		for _, cat := range event.Categories {
+			if cat != "" {
+				tagSet[cat] = true
+			}
+		}
+	}
+	for _, task := range tasks {
+		for _, cat := range task.Categories {
+			if cat != "" {
+				tagSet[cat] = true
+			}
+		}
+	}
+
+	var tags []string
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+
+	frontmatter := DayFrontmatter{
+		Date:        date,
+		Title:       title,
+		EventCount:  allDayCount + scheduledCount,
+		TaskCount:   taskCount,
+		AllDayCount: allDayCount,
+		Tags:        tags,
+		Type:        "daily",
+	}
+
+	yamlData, err := yaml.Marshal(frontmatter)
+	if err != nil {
+		return ""
+	}
+
+	return fmt.Sprintf("---\n%s---\n\n", string(yamlData))
+}
+
 // generateMergedContent creates the final markdown content by merging existing and new items
 func generateMergedContent(date string, existingContent *ExistingDayContent, newAllDay, newScheduled, newTasks []string) string {
+	return generateMergedContentWithFrontmatter(date, existingContent, newAllDay, newScheduled, newTasks, nil, nil, false)
+}
+
+// generateMergedContentWithFrontmatter creates the final markdown content with optional frontmatter
+func generateMergedContentWithFrontmatter(date string, existingContent *ExistingDayContent, newAllDay, newScheduled, newTasks []string, events []EventMarkdown, tasks []TodoMarkdown, useFrontmatter bool) string {
 	var sb strings.Builder
+
+	// Add frontmatter if requested
+	if useFrontmatter {
+		frontmatterContent := generateFrontmatter(date, len(newAllDay), len(newScheduled), len(newTasks), events, tasks, true)
+		sb.WriteString(frontmatterContent)
+	}
 
 	// Generate title
 	if date == "0001-01-01" {
@@ -620,13 +722,59 @@ func formatDuration(d time.Duration) string {
 // ProgressCallback is a function type for reporting progress during file generation
 type ProgressCallback func(message string, current, total int)
 
+// DayFrontmatter represents the YAML frontmatter for daily files
+type DayFrontmatter struct {
+	Date        string   `yaml:"date"`
+	Title       string   `yaml:"title"`
+	EventCount  int      `yaml:"event_count"`
+	TaskCount   int      `yaml:"task_count"`
+	AllDayCount int      `yaml:"allday_count"`
+	Tags        []string `yaml:"tags,omitempty"`
+	Type        string   `yaml:"type"`
+}
+
+// EventFrontmatter represents event-specific frontmatter data
+type EventFrontmatter struct {
+	Title      string    `yaml:"title"`
+	StartTime  time.Time `yaml:"start_time,omitempty"`
+	EndTime    time.Time `yaml:"end_time,omitempty"`
+	AllDay     bool      `yaml:"all_day"`
+	Location   string    `yaml:"location,omitempty"`
+	UID        string    `yaml:"uid,omitempty"`
+	Status     string    `yaml:"status,omitempty"`
+	Categories []string  `yaml:"categories,omitempty"`
+	Type       string    `yaml:"type"`
+}
+
+// TaskFrontmatter represents task-specific frontmatter data
+type TaskFrontmatter struct {
+	Title      string    `yaml:"title"`
+	Status     string    `yaml:"status,omitempty"`
+	Priority   string    `yaml:"priority,omitempty"`
+	DueDate    time.Time `yaml:"due_date,omitempty"`
+	Completed  bool      `yaml:"completed"`
+	UID        string    `yaml:"uid,omitempty"`
+	Categories []string  `yaml:"categories,omitempty"`
+	Type       string    `yaml:"type"`
+}
+
 // GenerateDailyFilesWithTasks groups events and tasks by date and creates daily markdown files
 func GenerateDailyFilesWithTasks(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags bool) error {
 	return GenerateDailyFilesWithTasksAndProgress(outputDir, events, tasks, useDueDateEmoji, useHashtags, nil)
 }
 
+// GenerateDailyFilesWithTasksAndFrontmatter groups events and tasks by date and creates daily markdown files with frontmatter
+func GenerateDailyFilesWithTasksAndFrontmatter(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter bool) error {
+	return GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, nil)
+}
+
 // GenerateDailyFilesWithTasksAndProgress groups events and tasks by date and creates daily markdown files with progress reporting
 func GenerateDailyFilesWithTasksAndProgress(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags bool, progressCallback ProgressCallback) error {
+	return GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir, events, tasks, useDueDateEmoji, useHashtags, false, progressCallback)
+}
+
+// GenerateDailyFilesWithTasksProgressAndFrontmatter groups events and tasks by date and creates daily markdown files with progress reporting and frontmatter support
+func GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter bool, progressCallback ProgressCallback) error {
 	// Group events by date
 	eventsByDate := make(map[string][]EventMarkdown)
 	tasksByDate := make(map[string][]TodoMarkdown)
@@ -746,7 +894,7 @@ func GenerateDailyFilesWithTasksAndProgress(outputDir string, events []EventMark
 		}
 
 		// Generate merged content
-		mergedContent := generateMergedContent(date, existingContent, newAllDayEvents, newScheduledEvents, newTasks)
+		mergedContent := generateMergedContentWithFrontmatter(date, existingContent, newAllDayEvents, newScheduledEvents, newTasks, dayEvents, dayTasks, useFrontmatter)
 
 		// Write merged content to file
 		file, err := os.Create(filename)

@@ -65,26 +65,36 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 
 - **`cmd/caldav2markdown/main.go`**: Main application entry point, handles CLI flags, configuration loading, and orchestrates the conversion process
 - **`pkg/caldav/client.go`**: CalDAV client implementation using WebDAV protocol to fetch .ics files, handles deduplication, date filtering, and recurring event expansion
-- **`pkg/markdown/formatter.go`**: Converts iCalendar components to Markdown format, handles both VEVENT and VTODO items with enhanced duration handling
-- **`pkg/config/config.go`**: Configuration management supporting both environment files and CLI flags, with configurable date ranges
+- **`pkg/caldav/report.go`**: CalDAV REPORT query implementation for server-side filtering using RFC 4791-compliant calendar-query requests
+- **`pkg/caldav/discovery.go`**: CalDAV calendar discovery implementation using PROPFIND requests for multi-calendar support
+- **`pkg/markdown/formatter.go`**: Converts iCalendar components to Markdown format, handles both VEVENT and VTODO items with YAML frontmatter support
+- **`pkg/config/config.go`**: Configuration management supporting both environment files and CLI flags, with multi-calendar and OAuth options
 - **`pkg/rrule/rrule.go`**: Recurrence rule (RRULE) parsing and recurring event expansion engine
+- **`pkg/oauth/client.go`**: Google OAuth 2.0 client implementation for CalDAV authentication
 
 ### Data Flow
 
-1. **Configuration**: Load from `.env` file or CLI flags (CalDAV URL, credentials, output directory, date range)
-2. **CalDAV Fetching**: Connect to server, read all `.ics` files, parse with `github.com/arran4/golang-ical`
-3. **Processing**:
+1. **Configuration**: Load from `.env` file or CLI flags (CalDAV URL, credentials, OAuth settings, multi-calendar options, output directory, date range)
+2. **Authentication**: OAuth 2.0 flow for Google Calendar or basic authentication for other CalDAV servers
+3. **Calendar Discovery** (optional): Use PROPFIND requests to discover all calendar collections on the server
+4. **CalDAV Fetching**:
+   - **Server-side filtering**: Use CalDAV REPORT queries with time-range filters (preferred for performance)
+   - **Client-side filtering**: Fallback to reading all `.ics` files and filtering locally
+   - **Multi-calendar**: Process multiple calendars with individual filtering and global deduplication
+5. **Processing**:
    - Extract VEVENT items (filtered by configurable date range)
    - Expand recurring events using RRULE parsing
-   - Extract VTODO items
-   - Deduplicate by UID across all calendar files and expanded instances
-4. **Output Generation**:
+   - Extract VTODO items with category and status information
+   - Global UID-based deduplication across all calendars and expanded instances
+6. **Output Generation**:
    - Daily aggregated markdown files: `YYYY-MM-DD.md` containing all events and tasks for that day
+   - Optional YAML frontmatter with metadata (date, event counts, categories, etc.)
    - Smart file merging: updates existing files instead of overwriting, preserving manual edits
    - Tasks are integrated into daily files by due date, no separate tasks.md file
 
 ### Key Implementation Details
 
+#### Core Features
 - **Smart File Merging**: Files are updated instead of overwritten, preserving manual edits and custom content while adding new calendar data
 - **Progress Indicators**: Real-time progress reporting during CalDAV fetching and file generation operations
 - **Date Filtering**: Configurable date range filtering with default start date of 2000-01-01 and end date 2 years from now. Events with invalid/unparseable dates are preserved rather than filtered out
@@ -93,48 +103,105 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Deduplication**: Uses UID properties to prevent duplicate events/todos across all calendar files and recurring event instances, includes duplicate detection during file merging
 - **Enhanced Time Parsing**: Supports multiple iCalendar date/time formats including UTC times with Z suffix (`20060102T150405Z`), local times without Z suffix (`20060102T150405`), and all-day events (`20060102`) with automatic end-time calculation
 - **Duration Handling**: Automatic calculation of event durations, with 1-hour default for events without end times
+- **iCalendar DURATION Support**: Parses RFC 5545 DURATION properties (e.g., `PT2H30M`)
+
+#### Authentication & Security
+- **OAuth 2.0 Support**: Full Google Calendar OAuth integration with automatic token management and refresh
+- **Token Storage**: Secure token persistence in `~/.config/caldav2markdown/token.json` with proper file permissions
+- **Automatic Refresh**: Handles expired tokens with automatic refresh using refresh tokens
+- **Basic Auth Fallback**: Maintains compatibility with traditional username/password authentication
+
+#### Performance Optimizations
+- **Server-side Filtering**: CalDAV REPORT queries with time-range filters reduce network traffic and processing
+- **Multi-calendar Discovery**: RFC 4791-compliant calendar collection discovery via PROPFIND requests
+- **Parallel Processing**: Concurrent calendar processing with global deduplication
+- **Smart Caching**: Intelligent file merging reduces redundant processing
+
+#### Output & Formatting
 - **Directory Structure**: Daily markdown files organized in YYYY/MM directory tree, with zero-date events in `0001/01/`
 - **Daily Aggregation**: Events and tasks are grouped by date and saved as daily markdown files with list format, including separate sections for all-day events, scheduled events, and tasks
+- **YAML Frontmatter**: Optional structured metadata including date, event counts, categories, and tags
 - **Flexible Formatting Options**:
   - Optional 📅 emoji for due dates (controlled by `USE_DUE_DATE_EMOJI` config)
   - Optional #event and #task hashtags (controlled by `USE_HASHTAGS` config)
+  - YAML frontmatter with comprehensive metadata (controlled by `USE_FRONTMATTER` config)
 - **Todo Integration**: Tasks are organized by due date and included in daily files rather than separate files
-- **iCalendar DURATION Support**: Parses RFC 5545 DURATION properties (e.g., `PT2H30M`)
 
-### Recent Enhancements
+#### Multi-Calendar Support
+- **Calendar Discovery**: Automatic discovery of all calendar collections on a CalDAV server
+- **Include/Exclude Filters**: Flexible filtering to process only specific calendars by name or URL pattern
+- **Global Deduplication**: UID-based deduplication across multiple calendars prevents duplicate events
+- **Individual Calendar Processing**: Each calendar processed independently with fallback error handling
 
-#### Core Functionality
-- **Smart File Merging**: Implemented intelligent file merging system that preserves existing content while adding new calendar data (`pkg/markdown/formatter.go:420-523`)
-- **Task Integration**: Tasks are now integrated into daily files by due date instead of separate tasks.md file
-- **Progress Indicators**: Added comprehensive progress reporting system with callbacks for real-time feedback during long operations (`pkg/caldav/client.go:78-79`, `pkg/markdown/formatter.go:620-621`)
+### Recent Major Updates
 
-#### Formatting and Display Options
-- **Emoji Support**: Optional 📅 emoji for due dates via `USE_DUE_DATE_EMOJI` configuration (`pkg/config/config.go:70-71`)
-- **Hashtag Support**: Optional #event and #task hashtags via `USE_HASHTAGS` configuration (`pkg/config/config.go:72-73`)
-- **Enhanced CLI Options**: Added `-emoji` and `-hashtags` command-line flags for formatting control
+#### 2025 Authentication & Security Updates
+- **Google OAuth 2.0**: Full implementation for Google Calendar CalDAV access (mandatory as of March 2025)
+- **Token Management**: Automatic token storage, refresh, and browser-based authorization flow
+- **Security Compliance**: Meets Google's updated security requirements for calendar access
 
-#### File Processing Improvements
-- **Deduplication During Merge**: Added duplicate detection and removal during file merging process
-- **Content Preservation**: Manual edits and custom sections in markdown files are preserved during updates
-- **Invalid Date Handling**: Modified date filtering logic to preserve events with unparseable/invalid date formats instead of filtering them out (`pkg/caldav/client.go:158`, `pkg/caldav/client.go:183`)
+#### Performance & Scalability Features
+- **Server-side Filtering**: CalDAV REPORT queries with time-range filters (RFC 4791 compliant)
+- **Multi-calendar Support**: Discover and process multiple calendars from a single CalDAV server
+- **Parallel Processing**: Concurrent calendar processing with intelligent error handling and fallbacks
 
-#### Infrastructure and Quality
-- **Build System**: Added comprehensive Makefile with targets for building, testing, cross-compilation, and development workflows
-- **Test Coverage**: Added comprehensive unit tests for formatter functionality, file merging, and progress callbacks (`pkg/markdown/formatter_test.go`)
-- **Configuration Management**: Enhanced environment configuration with new formatting options
+#### Enhanced Output Features
+- **YAML Frontmatter**: Structured metadata in markdown files for static site generators and note-taking apps
+- **Smart Formatting**: Emoji support, hashtags, and configurable display options
+- **Category Integration**: Calendar categories/tags are preserved and included in frontmatter
 
-#### Legacy Enhancements
-- **Zero Date Support**: Removed filters that excluded events with 0001-01-01 dates - these events are now processed and saved in `0001/01/` directory
-- **Directory Organization**: Implemented YYYY/MM directory tree structure for better file organization
-- **Recurring Event Support**: Added comprehensive RRULE parsing and event expansion (`pkg/rrule/rrule.go`)
-- **Enhanced Event Processing**: Events without end times now automatically get appropriate durations
-- **Date Range Configuration**: Configurable start and end dates via environment variables (`START_DATE`, `END_DATE`)
-- **Improved Date/Time Parsing**: Enhanced parsing logic to handle iCalendar date/time formats without Z suffix, supporting both UTC (`20060102T150405Z`) and local time (`20060102T150405`) formats across all components (VEVENT, VTODO, RRULE)
-- **Daily Event Aggregation**: Changed from individual event files to daily aggregated files (`YYYY-MM-DD.md`) containing all events for a specific date in markdown list format, with automatic sorting and separate sections for all-day and scheduled events
+#### Discovery & Automation
+- **Calendar Discovery**: Automatic discovery of all calendar collections using PROPFIND requests
+- **Flexible Filtering**: Include/exclude specific calendars by name or URL pattern
+- **Calendar Listing**: `-list-calendars` command to preview available calendars before processing
+
+#### Backward Compatibility
+- **Legacy Support**: All existing configurations and workflows continue to work unchanged
+- **Graceful Fallbacks**: Server-side filtering falls back to client-side when not supported
+- **Configuration Migration**: New features are opt-in with sensible defaults
 
 ### Dependencies
 
-- `github.com/arran4/golang-ical`: iCalendar parsing
-- `github.com/studio-b12/gowebdav`: WebDAV/CalDAV client
+- `github.com/arran4/golang-ical`: iCalendar parsing and component handling
+- `github.com/studio-b12/gowebdav`: WebDAV/CalDAV client for basic authentication and file operations
+- `golang.org/x/oauth2`: OAuth 2.0 client implementation with Google provider support
+- `gopkg.in/yaml.v3`: YAML marshaling for frontmatter generation
 
-The application processes only VEVENT and VTODO components, ignoring other iCalendar component types like VJOURNAL, VFREEBUSY, etc.
+### Supported Calendar Components
+
+The application processes the following iCalendar component types:
+- **VEVENT**: Calendar events with full recurring event support
+- **VTODO**: Tasks and todos with status, priority, and due date handling
+
+Other iCalendar component types (VJOURNAL, VFREEBUSY, VTIMEZONE, etc.) are ignored during processing.
+
+### Configuration Examples
+
+#### Google Calendar with OAuth
+```bash
+USE_OAUTH=true
+CALDAV_URL=https://apidata.googleusercontent.com/caldav/v2/primary/events
+GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_client_secret
+USE_FRONTMATTER=true
+DISCOVER_CALENDARS=true
+```
+
+#### Multi-calendar with Server-side Filtering
+```bash
+DISCOVER_CALENDARS=true
+USE_SERVER_SIDE_FILTERING=true
+INCLUDE_CALENDARS=Work,Personal,Family
+EXCLUDE_CALENDARS=Archive,Test,Spam
+USE_HASHTAGS=true
+USE_FRONTMATTER=true
+```
+
+#### Traditional CalDAV Server
+```bash
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+USE_DUE_DATE_EMOJI=true
+OUTPUT_DIR=./calendar-notes
+```

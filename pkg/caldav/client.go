@@ -1,6 +1,7 @@
 package caldav
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/arran4/golang-ical"
 	"github.com/studio-b12/gowebdav"
 	"caldav2markdown/pkg/rrule"
+	"caldav2markdown/pkg/oauth"
 )
 
 // parseICalDateTime attempts to parse an iCalendar date/time string in various formats
@@ -37,29 +39,74 @@ func parseICalDateTime(value string) (time.Time, bool, error) {
 }
 
 type Client struct {
-	webdavClient *gowebdav.Client
-	baseURL      string
-	startDate    time.Time
-	endDate      time.Time
+	webdavClient           *gowebdav.Client
+	httpClient             *http.Client
+	baseURL                string
+	username               string
+	password               string
+	startDate              time.Time
+	endDate                time.Time
+	useOAuth               bool
+	useServerSideFiltering bool
+	enableCalendarDiscovery bool
+	includeCalendars       []string
+	excludeCalendars       []string
 }
 
 type Config struct {
-	URL       string
-	Username  string
-	Password  string
-	StartDate time.Time
-	EndDate   time.Time
+	URL               string
+	Username          string
+	Password          string
+	StartDate         time.Time
+	EndDate           time.Time
+	// OAuth fields
+	UseOAuth          bool
+	ClientID          string
+	ClientSecret      string
+	// Performance options
+	UseServerSideFiltering bool
+	// Multi-calendar options
+	DiscoverCalendars     bool
+	IncludeCalendars      []string // Specific calendar names/URLs to include
+	ExcludeCalendars      []string // Specific calendar names/URLs to exclude
 }
 
 func NewClient(config Config) *Client {
-	client := gowebdav.NewClient(config.URL, config.Username, config.Password)
-
-	return &Client{
-		webdavClient: client,
-		baseURL:      config.URL,
-		startDate:    config.StartDate,
-		endDate:      config.EndDate,
+	c := &Client{
+		baseURL:                config.URL,
+		username:               config.Username,
+		password:               config.Password,
+		startDate:              config.StartDate,
+		endDate:                config.EndDate,
+		useOAuth:               config.UseOAuth,
+		useServerSideFiltering: config.UseServerSideFiltering,
+		enableCalendarDiscovery: config.DiscoverCalendars,
+		includeCalendars:       config.IncludeCalendars,
+		excludeCalendars:       config.ExcludeCalendars,
 	}
+
+	if config.UseOAuth {
+		oauthClient := oauth.NewClient(oauth.Config{
+			ClientID:     config.ClientID,
+			ClientSecret: config.ClientSecret,
+		})
+
+		httpClient, err := oauthClient.GetHTTPClient(context.Background())
+		if err != nil {
+			// For now, fall back to basic auth if OAuth fails
+			// In production, you might want to return the error
+			fmt.Printf("Warning: OAuth failed, falling back to basic auth: %v\n", err)
+			c.webdavClient = gowebdav.NewClient(config.URL, config.Username, config.Password)
+		} else {
+			c.httpClient = httpClient
+			c.webdavClient = gowebdav.NewClient(config.URL, "", "")
+			c.webdavClient.SetTransport(httpClient.Transport)
+		}
+	} else {
+		c.webdavClient = gowebdav.NewClient(config.URL, config.Username, config.Password)
+	}
+
+	return c
 }
 
 type DeduplicationResult struct {
@@ -84,6 +131,28 @@ func (c *Client) GetEventsWithDeduplication() (*DeduplicationResult, error) {
 }
 
 func (c *Client) GetEventsWithDeduplicationAndProgress(progressCallback ProgressCallback) (*DeduplicationResult, error) {
+	if c.enableCalendarDiscovery {
+		// Multi-calendar processing
+		return c.getEventsFromMultipleCalendarsAndProgress(progressCallback)
+	} else if c.useServerSideFiltering {
+		// Single calendar with server-side filtering
+		result, err := c.GetEventsWithServerSideFilteringAndProgress(progressCallback)
+		if err != nil {
+			if progressCallback != nil {
+				progressCallback("Server-side filtering failed, falling back to client-side...", 0, 1)
+			}
+			fmt.Printf("Warning: Server-side filtering failed (%v), falling back to client-side processing\n", err)
+			return c.getEventsWithClientSideFilteringAndProgress(progressCallback)
+		}
+		return result, nil
+	} else {
+		// Single calendar with client-side filtering (original behavior)
+		return c.getEventsWithClientSideFilteringAndProgress(progressCallback)
+	}
+}
+
+// getEventsWithClientSideFilteringAndProgress is the original implementation
+func (c *Client) getEventsWithClientSideFilteringAndProgress(progressCallback ProgressCallback) (*DeduplicationResult, error) {
 	if progressCallback != nil {
 		progressCallback("Connecting to CalDAV server...", 0, 1)
 	}
@@ -260,4 +329,152 @@ func (c *Client) TestConnection() error {
 	}
 
 	return nil
+}
+
+// filterCalendars applies include/exclude filters to discovered calendars
+func (c *Client) filterCalendars(calendars []CalendarInfo) []CalendarInfo {
+	filtered := make([]CalendarInfo, 0, len(calendars))
+
+	for _, calendar := range calendars {
+		// Check exclude list first
+		excluded := false
+		for _, exclude := range c.excludeCalendars {
+			if strings.EqualFold(calendar.DisplayName, exclude) ||
+			   strings.EqualFold(calendar.URL, exclude) ||
+			   strings.Contains(strings.ToLower(calendar.URL), strings.ToLower(exclude)) {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			continue
+		}
+
+		// Check include list (if specified)
+		if len(c.includeCalendars) > 0 {
+			included := false
+			for _, include := range c.includeCalendars {
+				if strings.EqualFold(calendar.DisplayName, include) ||
+				   strings.EqualFold(calendar.URL, include) ||
+				   strings.Contains(strings.ToLower(calendar.URL), strings.ToLower(include)) {
+					included = true
+					break
+				}
+			}
+			if !included {
+				continue
+			}
+		}
+
+		filtered = append(filtered, calendar)
+	}
+
+	return filtered
+}
+
+// getEventsFromMultipleCalendarsAndProgress discovers and processes multiple calendars
+func (c *Client) getEventsFromMultipleCalendarsAndProgress(progressCallback ProgressCallback) (*DeduplicationResult, error) {
+	if progressCallback != nil {
+		progressCallback("Discovering calendars...", 0, 1)
+	}
+
+	// Discover all calendars
+	calendars, err := c.DiscoverCalendars()
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover calendars: %w", err)
+	}
+
+	if len(calendars) == 0 {
+		return nil, fmt.Errorf("no calendars found")
+	}
+
+	// Apply filters
+	filteredCalendars := c.filterCalendars(calendars)
+	if len(filteredCalendars) == 0 {
+		return nil, fmt.Errorf("no calendars match the specified filters")
+	}
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Found %d calendar(s) to process", len(filteredCalendars)), 1, 1)
+	}
+
+	// Process each calendar
+	var allEvents []*ics.VEvent
+	var allTodos []*ics.VTodo
+	seenUIDs := make(map[string]bool)
+	duplicatesFound := 0
+
+	for i, calendar := range filteredCalendars {
+		if progressCallback != nil {
+			progressCallback(fmt.Sprintf("Processing calendar: %s", calendar.DisplayName), i+1, len(filteredCalendars))
+		}
+
+		// Create a temporary client for this specific calendar
+		tempClient := &Client{
+			webdavClient:           c.webdavClient,
+			httpClient:             c.httpClient,
+			baseURL:                calendar.URL,
+			username:               c.username,
+			password:               c.password,
+			startDate:              c.startDate,
+			endDate:                c.endDate,
+			useOAuth:               c.useOAuth,
+			useServerSideFiltering: c.useServerSideFiltering,
+		}
+
+		var calendarResult *DeduplicationResult
+		var calendarErr error
+
+		if c.useServerSideFiltering {
+			// Try server-side filtering for this calendar
+			calendarResult, calendarErr = tempClient.GetEventsWithServerSideFilteringAndProgress(nil)
+			if calendarErr != nil {
+				fmt.Printf("Warning: Server-side filtering failed for calendar %s (%v), trying client-side\n",
+					calendar.DisplayName, calendarErr)
+				calendarResult, calendarErr = tempClient.getEventsWithClientSideFilteringAndProgress(nil)
+			}
+		} else {
+			// Use client-side filtering for this calendar
+			calendarResult, calendarErr = tempClient.getEventsWithClientSideFilteringAndProgress(nil)
+		}
+
+		if calendarErr != nil {
+			fmt.Printf("Warning: Failed to process calendar %s: %v\n", calendar.DisplayName, calendarErr)
+			continue
+		}
+
+		// Merge results with global deduplication
+		for _, event := range calendarResult.Events {
+			uid := c.getEventUID(event)
+			if uid != "" && seenUIDs[uid] {
+				duplicatesFound++
+				continue
+			}
+			if uid != "" {
+				seenUIDs[uid] = true
+			}
+			allEvents = append(allEvents, event)
+		}
+
+		for _, todo := range calendarResult.Todos {
+			uid := c.getTodoUID(todo)
+			if uid != "" && seenUIDs[uid] {
+				duplicatesFound++
+				continue
+			}
+			if uid != "" {
+				seenUIDs[uid] = true
+			}
+			allTodos = append(allTodos, todo)
+		}
+
+		// Add local duplicates to the count
+		duplicatesFound += calendarResult.DuplicatesFound
+	}
+
+	return &DeduplicationResult{
+		Events:          allEvents,
+		Todos:           allTodos,
+		DuplicatesFound: duplicatesFound,
+	}, nil
 }

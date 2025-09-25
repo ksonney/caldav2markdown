@@ -17,6 +17,17 @@ type Config struct {
 	EndDate         time.Time
 	UseDueDateEmoji bool
 	UseHashtags     bool
+	UseFrontmatter  bool
+	// Performance options
+	UseServerSideFiltering bool
+	// Multi-calendar options
+	DiscoverCalendars     bool
+	IncludeCalendars      []string
+	ExcludeCalendars      []string
+	// OAuth fields
+	UseOAuth        bool
+	ClientID        string
+	ClientSecret    string
 }
 
 func LoadFromEnvFile(filename string) (*Config, error) {
@@ -71,6 +82,32 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.UseDueDateEmoji = strings.ToLower(value) == "true" || value == "1"
 		case "USE_HASHTAGS":
 			config.UseHashtags = strings.ToLower(value) == "true" || value == "1"
+		case "USE_FRONTMATTER":
+			config.UseFrontmatter = strings.ToLower(value) == "true" || value == "1"
+		case "USE_SERVER_SIDE_FILTERING":
+			config.UseServerSideFiltering = strings.ToLower(value) == "true" || value == "1"
+		case "DISCOVER_CALENDARS":
+			config.DiscoverCalendars = strings.ToLower(value) == "true" || value == "1"
+		case "INCLUDE_CALENDARS":
+			if value != "" {
+				config.IncludeCalendars = strings.Split(value, ",")
+				for i, cal := range config.IncludeCalendars {
+					config.IncludeCalendars[i] = strings.TrimSpace(cal)
+				}
+			}
+		case "EXCLUDE_CALENDARS":
+			if value != "" {
+				config.ExcludeCalendars = strings.Split(value, ",")
+				for i, cal := range config.ExcludeCalendars {
+					config.ExcludeCalendars[i] = strings.TrimSpace(cal)
+				}
+			}
+		case "USE_OAUTH":
+			config.UseOAuth = strings.ToLower(value) == "true" || value == "1"
+		case "GOOGLE_CLIENT_ID":
+			config.ClientID = value
+		case "GOOGLE_CLIENT_SECRET":
+			config.ClientSecret = value
 		}
 	}
 
@@ -85,11 +122,22 @@ func (c *Config) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("CALDAV_URL is required")
 	}
-	if c.Username == "" {
-		return fmt.Errorf("CALDAV_USERNAME is required")
+
+	if c.UseOAuth {
+		if c.ClientID == "" {
+			return fmt.Errorf("GOOGLE_CLIENT_ID is required when using OAuth")
+		}
+		if c.ClientSecret == "" {
+			return fmt.Errorf("GOOGLE_CLIENT_SECRET is required when using OAuth")
+		}
+	} else {
+		if c.Username == "" {
+			return fmt.Errorf("CALDAV_USERNAME is required when not using OAuth")
+		}
+		if c.Password == "" {
+			return fmt.Errorf("CALDAV_PASSWORD is required when not using OAuth")
+		}
 	}
-	if c.Password == "" {
-		return fmt.Errorf("CALDAV_PASSWORD is required")
-	}
+
 	return nil
 }

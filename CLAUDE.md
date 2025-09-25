@@ -79,32 +79,55 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
    - Extract VTODO items
    - Deduplicate by UID across all calendar files and expanded instances
 4. **Output Generation**:
-   - Daily aggregated markdown files: `YYYY-MM-DD.md` containing all events for that day as a markdown list
-   - Single `tasks.md` file containing all todos as checkboxes
+   - Daily aggregated markdown files: `YYYY-MM-DD.md` containing all events and tasks for that day
+   - Smart file merging: updates existing files instead of overwriting, preserving manual edits
+   - Tasks are integrated into daily files by due date, no separate tasks.md file
 
 ### Key Implementation Details
 
+- **Smart File Merging**: Files are updated instead of overwritten, preserving manual edits and custom content while adding new calendar data
+- **Progress Indicators**: Real-time progress reporting during CalDAV fetching and file generation operations
 - **Date Filtering**: Configurable date range filtering with default start date of 2000-01-01 and end date 2 years from now. Events with invalid/unparseable dates are preserved rather than filtered out
 - **Zero Date Handling**: Events and todos with 0001-01-01 dates (placeholder/unspecified dates) are now processed and included
 - **Recurring Events**: Full RRULE support for expanding recurring events including FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTH
-- **Deduplication**: Uses UID properties to prevent duplicate events/todos across all calendar files and recurring event instances
+- **Deduplication**: Uses UID properties to prevent duplicate events/todos across all calendar files and recurring event instances, includes duplicate detection during file merging
 - **Enhanced Time Parsing**: Supports multiple iCalendar date/time formats including UTC times with Z suffix (`20060102T150405Z`), local times without Z suffix (`20060102T150405`), and all-day events (`20060102`) with automatic end-time calculation
 - **Duration Handling**: Automatic calculation of event durations, with 1-hour default for events without end times
 - **Directory Structure**: Daily markdown files organized in YYYY/MM directory tree, with zero-date events in `0001/01/`
-- **Daily Aggregation**: Events are grouped by date and saved as daily markdown files with list format, including separate sections for all-day and scheduled events
-- **Todo Format**: Uses markdown checkboxes with priority, due dates, completion status, and descriptions
+- **Daily Aggregation**: Events and tasks are grouped by date and saved as daily markdown files with list format, including separate sections for all-day events, scheduled events, and tasks
+- **Flexible Formatting Options**:
+  - Optional 📅 emoji for due dates (controlled by `USE_DUE_DATE_EMOJI` config)
+  - Optional #event and #task hashtags (controlled by `USE_HASHTAGS` config)
+- **Todo Integration**: Tasks are organized by due date and included in daily files rather than separate files
 - **iCalendar DURATION Support**: Parses RFC 5545 DURATION properties (e.g., `PT2H30M`)
 
 ### Recent Enhancements
 
+#### Core Functionality
+- **Smart File Merging**: Implemented intelligent file merging system that preserves existing content while adding new calendar data (`pkg/markdown/formatter.go:420-523`)
+- **Task Integration**: Tasks are now integrated into daily files by due date instead of separate tasks.md file
+- **Progress Indicators**: Added comprehensive progress reporting system with callbacks for real-time feedback during long operations (`pkg/caldav/client.go:78-79`, `pkg/markdown/formatter.go:620-621`)
+
+#### Formatting and Display Options
+- **Emoji Support**: Optional 📅 emoji for due dates via `USE_DUE_DATE_EMOJI` configuration (`pkg/config/config.go:70-71`)
+- **Hashtag Support**: Optional #event and #task hashtags via `USE_HASHTAGS` configuration (`pkg/config/config.go:72-73`)
+- **Enhanced CLI Options**: Added `-emoji` and `-hashtags` command-line flags for formatting control
+
+#### File Processing Improvements
+- **Deduplication During Merge**: Added duplicate detection and removal during file merging process
+- **Content Preservation**: Manual edits and custom sections in markdown files are preserved during updates
 - **Invalid Date Handling**: Modified date filtering logic to preserve events with unparseable/invalid date formats instead of filtering them out (`pkg/caldav/client.go:158`, `pkg/caldav/client.go:183`)
+
+#### Infrastructure and Quality
 - **Build System**: Added comprehensive Makefile with targets for building, testing, cross-compilation, and development workflows
+- **Test Coverage**: Added comprehensive unit tests for formatter functionality, file merging, and progress callbacks (`pkg/markdown/formatter_test.go`)
+- **Configuration Management**: Enhanced environment configuration with new formatting options
+
+#### Legacy Enhancements
 - **Zero Date Support**: Removed filters that excluded events with 0001-01-01 dates - these events are now processed and saved in `0001/01/` directory
 - **Directory Organization**: Implemented YYYY/MM directory tree structure for better file organization
 - **Recurring Event Support**: Added comprehensive RRULE parsing and event expansion (`pkg/rrule/rrule.go`)
 - **Enhanced Event Processing**: Events without end times now automatically get appropriate durations
-- **Improved Output**: Markdown now shows duration calculations and better formatting for all-day events and zero-date events
-- **Test Coverage**: Added comprehensive unit tests for formatter functionality (`pkg/markdown/formatter_test.go`)
 - **Date Range Configuration**: Configurable start and end dates via environment variables (`START_DATE`, `END_DATE`)
 - **Improved Date/Time Parsing**: Enhanced parsing logic to handle iCalendar date/time formats without Z suffix, supporting both UTC (`20060102T150405Z`) and local time (`20060102T150405`) formats across all components (VEVENT, VTODO, RRULE)
 - **Daily Event Aggregation**: Changed from individual event files to daily aggregated files (`YYYY-MM-DD.md`) containing all events for a specific date in markdown list format, with automatic sorting and separate sections for all-day and scheduled events

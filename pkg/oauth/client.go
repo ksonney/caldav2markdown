@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,20 +15,83 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
+// tracingTransport is a custom HTTP transport that logs requests and responses
+type tracingTransport struct {
+	transport http.RoundTripper
+}
+
+func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Log the request
+	fmt.Printf("\n=== OAuth HTTP Request ===\n")
+	if reqDump, err := httputil.DumpRequestOut(req, true); err == nil {
+		fmt.Printf("%s\n", string(reqDump))
+	} else {
+		fmt.Printf("Failed to dump request: %v\n", err)
+	}
+
+	// Execute the request
+	resp, err := t.transport.RoundTrip(req)
+	if err != nil {
+		fmt.Printf("=== OAuth HTTP Request Failed ===\n")
+		fmt.Printf("Error: %v\n", err)
+		return resp, err
+	}
+
+	// Log the response
+	fmt.Printf("=== OAuth HTTP Response ===\n")
+	if respDump, err := httputil.DumpResponse(resp, true); err == nil {
+		fmt.Printf("%s\n", string(respDump))
+	} else {
+		fmt.Printf("Failed to dump response: %v\n", err)
+	}
+	fmt.Printf("=== End OAuth Trace ===\n\n")
+
+	return resp, err
+}
+
+// createHTTPTransport creates an HTTP transport with optional proxy support
+func createHTTPTransport(proxyURL, proxyUsername, proxyPassword string) (http.RoundTripper, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	if proxyURL != "" {
+		proxy, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+
+		// Add proxy authentication if credentials provided
+		if proxyUsername != "" && proxyPassword != "" {
+			proxy.User = url.UserPassword(proxyUsername, proxyPassword)
+		}
+
+		transport.Proxy = http.ProxyURL(proxy)
+	}
+
+	return transport, nil
+}
+
 const (
 	CalDAVScope = "https://www.googleapis.com/auth/calendar"
 	TokenFile   = "token.json"
 )
 
 type Client struct {
-	config *oauth2.Config
-	token  *oauth2.Token
+	config        *oauth2.Config
+	token         *oauth2.Token
+	traceWebCalls bool
+	proxyURL      string
+	proxyUsername string
+	proxyPassword string
 }
 
 type Config struct {
-	ClientID     string
-	ClientSecret string
-	TokenFile    string
+	ClientID      string
+	ClientSecret  string
+	TokenFile     string
+	TraceWebCalls bool
+	ProxyURL      string
+	ProxyUsername string
+	ProxyPassword string
 }
 
 func NewClient(cfg Config) *Client {
@@ -43,7 +108,11 @@ func NewClient(cfg Config) *Client {
 	}
 
 	return &Client{
-		config: config,
+		config:        config,
+		traceWebCalls: cfg.TraceWebCalls,
+		proxyURL:      cfg.ProxyURL,
+		proxyUsername: cfg.ProxyUsername,
+		proxyPassword: cfg.ProxyPassword,
 	}
 }
 
@@ -53,7 +122,32 @@ func (c *Client) GetHTTPClient(ctx context.Context) (*http.Client, error) {
 		return nil, fmt.Errorf("failed to get valid token: %w", err)
 	}
 
-	return c.config.Client(ctx, token), nil
+	// Create context with custom transport for proxy support
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, c.createCustomHTTPClient())
+
+	client := c.config.Client(ctx, token)
+
+	// Add tracing transport if enabled
+	if c.traceWebCalls {
+		client.Transport = &tracingTransport{
+			transport: client.Transport,
+		}
+	}
+
+	return client, nil
+}
+
+// createCustomHTTPClient creates an HTTP client with proxy support for OAuth operations
+func (c *Client) createCustomHTTPClient() *http.Client {
+	transport, err := createHTTPTransport(c.proxyURL, c.proxyUsername, c.proxyPassword)
+	if err != nil {
+		fmt.Printf("Warning: failed to create proxy transport for OAuth: %v\n", err)
+		transport = http.DefaultTransport
+	}
+
+	return &http.Client{
+		Transport: transport,
+	}
 }
 
 func (c *Client) getValidToken(ctx context.Context) (*oauth2.Token, error) {
@@ -78,7 +172,9 @@ func (c *Client) getValidToken(ctx context.Context) (*oauth2.Token, error) {
 	}
 
 	fmt.Println("Refreshing expired token...")
-	tokenSource := c.config.TokenSource(ctx, token)
+	// Use custom context with proxy support for token refresh
+	ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, c.createCustomHTTPClient())
+	tokenSource := c.config.TokenSource(ctxWithClient, token)
 	newToken, err := tokenSource.Token()
 	if err != nil {
 		fmt.Println("Failed to refresh token, starting new OAuth flow...")
@@ -142,7 +238,9 @@ func (c *Client) performOAuthFlow(ctx context.Context) (*oauth2.Token, error) {
 
 	server.Shutdown(context.Background())
 
-	token, err := c.config.Exchange(ctx, code)
+	// Use custom context with proxy support for token exchange
+	ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, c.createCustomHTTPClient())
+	token, err := c.config.Exchange(ctxWithClient, code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to exchange authorization code for token: %w", err)
 	}

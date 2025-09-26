@@ -1,0 +1,180 @@
+---
+# Development & Testing Configuration
+# For developers working with multiple environments and testing scenarios
+
+# Global Settings
+output: ./dev-test-calendars
+start_date: 2023-01-01T00:00:00Z  # Extended range for testing historical data
+end_date: 2026-12-31T23:59:59Z    # Extended future range
+use_frontmatter: true
+use_hashtags: true
+event_checkboxes: true
+trace_web_calls: true             # Enable detailed logging for debugging
+
+sources:
+  # Production environment (read-only monitoring)
+  - type: caldav
+    name: Production Monitor
+    caldav:
+      url: https://prod-calendar.company.com/caldav/
+      username: readonly-monitor
+      password: readonly-monitor-password
+      use_server_side_filtering: true
+      discover_calendars: false
+      calendar_aliases:
+        "Production Events": "Prod"
+        "System Maintenance": "Maintenance"
+
+  # Staging environment
+  - type: caldav
+    name: Staging Environment
+    caldav:
+      url: https://staging-calendar.company.com/caldav/
+      username: staging-user
+      password: staging-password
+      use_server_side_filtering: true
+      discover_calendars: true
+      include_calendars:
+        - "Test Events"
+        - "QA Schedule"
+      calendar_aliases:
+        "Test Events": "Test"
+        "QA Schedule": "QA"
+
+  # Development environment
+  - type: caldav
+    name: Development Environment
+    caldav:
+      url: https://dev-calendar.company.com/caldav/
+      username: dev-user
+      password: dev-password
+      use_server_side_filtering: false  # Test fallback behavior
+      discover_calendars: true
+      calendar_aliases:
+        "Dev Events": "Dev"
+        "Sprint Planning": "Sprint"
+
+  # Local test data files
+  - type: ics
+    name: Unit Test Data
+    ics:
+      type: local
+      path: /dev/test-data/unit-tests.ics
+
+  - type: ics
+    name: Integration Test Data
+    ics:
+      type: local
+      path: /dev/test-data/integration-tests.ics
+
+  - type: ics
+    name: Edge Case Test Data
+    ics:
+      type: local
+      path: /dev/test-data/edge-cases.ics
+
+  # Mock API endpoints for testing
+  - type: ics
+    name: Mock API Fast
+    ics:
+      type: remote
+      path: https://dev-api.company.com/mock/fast-response.ics
+      auth: header
+      timeout: 5s               # Test fast timeouts
+      headers:
+        Authorization: Bearer dev-token
+        X-Environment: development
+        X-Mock-Delay: "0"
+
+  - type: ics
+    name: Mock API Slow
+    ics:
+      type: remote
+      path: https://dev-api.company.com/mock/slow-response.ics
+      auth: header
+      timeout: 30s              # Test slow responses
+      headers:
+        Authorization: Bearer dev-token
+        X-Environment: development
+        X-Mock-Delay: "10000"   # 10 second delay
+
+  - type: ics
+    name: Mock API Large Dataset
+    ics:
+      type: remote
+      path: https://dev-api.company.com/mock/large-dataset.ics
+      auth: header
+      timeout: 60s              # Test large responses
+      headers:
+        Authorization: Bearer dev-token
+        X-Environment: development
+        X-Mock-Size: "large"
+
+  # Error testing endpoints
+  - type: ics
+    name: Mock API Error Testing
+    ics:
+      type: remote
+      path: https://dev-api.company.com/mock/error-scenarios.ics
+      auth: header
+      timeout: 15s
+      headers:
+        Authorization: Bearer dev-token
+        X-Environment: development
+        X-Mock-Error-Rate: "0.1"  # 10% error rate for testing
+
+  # Performance testing
+  - type: ics
+    name: Performance Test Baseline
+    ics:
+      type: remote
+      path: https://perf-test.company.com/baseline/calendar.ics
+      auth: basic
+      username: perf-test
+      password: perf-test-password
+      timeout: 120s             # Allow for performance measurement
+
+  # Security testing (with various auth methods)
+  - type: ics
+    name: Security Test Basic Auth
+    ics:
+      type: remote
+      path: https://security-test.company.com/basic-auth/calendar.ics
+      auth: basic
+      username: security-test-user
+      password: security-test-password
+      timeout: 30s
+
+  - type: ics
+    name: Security Test Bearer Token
+    ics:
+      type: remote
+      path: https://security-test.company.com/bearer/calendar.ics
+      auth: bearer
+      token: security-test-bearer-token
+      timeout: 30s
+
+  - type: ics
+    name: Security Test Custom Headers
+    ics:
+      type: remote
+      path: https://security-test.company.com/custom-auth/calendar.ics
+      auth: header
+      timeout: 30s
+      headers:
+        X-API-Key: security-test-api-key
+        X-Client-Certificate: security-test-cert-hash
+        X-Signature: security-test-hmac-signature
+
+  # Boundary testing
+  - type: ics
+    name: Boundary Test Empty
+    ics:
+      type: local
+      path: /dev/test-data/empty.ics
+
+  - type: ics
+    name: Boundary Test Minimal
+    ics:
+      type: local
+      path: /dev/test-data/minimal.ics

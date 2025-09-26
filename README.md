@@ -4,6 +4,14 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 
 ## 🆕 Recent Updates
 
+### Latest Enhancements (2025)
+- **🔧 Fixed Autodiscovery**: Resolved configuration validation issue that prevented autodiscovery from working without explicit SOURCE_MODE setting
+- **🏷️ Calendar Name Display & Aliases**: Events and tasks now display their source calendar with support for custom aliases
+- **🕐 Time Zone Support**: Full TZID parameter support for accurate time zone handling in events and tasks
+- **📝 Smart Todo Management**: Tasks without due dates are now saved to a separate `todo.md` file with intelligent merging
+- **🔀 Intelligent Frontmatter Merging**: Enhanced file merging preserves custom frontmatter fields while updating calendar statistics
+- **✅ Past Event Marking**: When EVENT_CHECKBOXES is enabled, past events are automatically marked as completed [x]
+
 ### Enhanced Recurring Event Processing (2025)
 - **Fixed Date Range Filtering**: Recurring events and tasks are now properly processed when their original start date falls outside the configured date filter range
 - **Smart Instance Detection**: The application expands recurring items first, then filters individual instances by date, ensuring no valid occurrences are missed
@@ -21,6 +29,7 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 ### 🔐 Authentication & Security
 - **Google OAuth 2.0**: Full support for Google Calendar with automatic token management
 - **Traditional CalDAV**: Username/password authentication for standard CalDAV servers
+- **Proxy Support**: Full HTTP proxy support with optional authentication for corporate environments
 - **Secure Token Storage**: OAuth tokens stored securely with automatic refresh
 
 ### 🚀 Performance & Scalability
@@ -31,16 +40,20 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 
 ### 📁 Output & Organization
 - **Daily Aggregation**: Events and tasks organized in `YYYY-MM-DD.md` files
+- **Smart Todo Management**: Tasks without due dates saved to separate `todo.md` file
 - **YAML Frontmatter**: Optional structured metadata for static site generators
-- **Smart File Merging**: Preserves manual edits while adding new calendar data
+- **Intelligent File Merging**: Preserves custom frontmatter fields and manual edits while adding new calendar data
 - **Flexible Formatting**: Customizable emoji, hashtags, display options, optional description exclusion, and event checkboxes
+- **Past Event Marking**: Automatically marks past events as completed when checkboxes are enabled
 - **Directory Structure**: Organized in `YYYY/MM/` hierarchy for easy navigation
 
 ### 📅 Calendar Features
 - **Event Processing**: Full support for recurring events with RRULE expansion
 - **Smart Recurring Processing**: Recurring events/tasks are expanded first, then filtered by date range, ensuring items with start dates outside the filter range are included if they have instances within the range
 - **Task Management**: Todo extraction with due dates, priorities, and status, including recurring task support
-- **Date/Time Handling**: Support for UTC, local time, and all-day events
+- **Calendar Name Display**: Events and tasks show their source calendar with customizable aliases
+- **Time Zone Support**: Full TZID parameter support with IANA time zone database and common mappings
+- **Date/Time Handling**: Support for UTC, local time, time zones, and all-day events
 - **Category Integration**: Calendar categories preserved in frontmatter
 - **Date Filtering**: Configurable date range filtering for focused output
 
@@ -119,9 +132,36 @@ CALDAV_PASSWORD=your-password
 DISCOVER_CALENDARS=true
 INCLUDE_CALENDARS=Work,Personal
 EXCLUDE_CALENDARS=Archive,Test
+CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work
 
 # Performance Options
 USE_SERVER_SIDE_FILTERING=true
+```
+
+#### ICS File Mode Configuration
+
+For processing local or remote ICS files instead of CalDAV:
+
+```env
+# Source mode
+SOURCE_MODE=ics
+
+# Local ICS file
+ICS_PATH=./my-calendar.ics
+
+# OR Remote ICS URL
+ICS_URL=https://calendar.example.com/my-calendar.ics
+ICS_AUTH=basic
+ICS_USERNAME=your-username
+ICS_PASSWORD=your-password
+
+# Calendar aliases for ICS files
+CALENDAR_ALIASES=My Calendar:Personal,Team Calendar:Work
+
+# Output settings
+OUTPUT_DIR=./events
+USE_FRONTMATTER=true
+USE_HASHTAGS=true
 ```
 
 #### Complete Configuration Options
@@ -154,6 +194,11 @@ USE_SERVER_SIDE_FILTERING=true
 DISCOVER_CALENDARS=true
 INCLUDE_CALENDARS=Work,Personal
 EXCLUDE_CALENDARS=Archive,Spam
+CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work,Google Calendar:GCal
+# Proxy Configuration (optional, for corporate environments)
+PROXY_URL=http://proxy.company.com:8080
+PROXY_USERNAME=proxy_user
+PROXY_PASSWORD=proxy_pass
 ```
 
 ### Method 2: Command Line Flags
@@ -231,6 +276,10 @@ bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "
 
 # Test connection to server
 bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" -test
+
+# Connect through corporate proxy with authentication
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -proxy-url "http://proxy.company.com:8080" -proxy-username "proxy_user" -proxy-password "proxy_pass"
 
 # Process specific date range with custom output
 bin/caldav2markdown -config myconfig.env -start 2024-06-01 -end 2024-06-30 -output ./june-events
@@ -342,15 +391,15 @@ bin/caldav2markdown \
 
 ## Output Format
 
-### Events
+### File Organization
 
-Events are organized in a `YYYY/MM/` directory structure. All events for a single day are saved in a single file named `YYYY-MM-DD.md` as a markdown list.
-
-For events with zero or invalid dates, files are saved in `0001/01/` directory.
+- **Daily Files**: Events and tasks with due dates are organized in `YYYY/MM/YYYY-MM-DD.md` files
+- **Todo File**: Tasks without due dates are saved to `todo.md` in the output directory root
+- **Zero Dates**: Events with zero or invalid dates are saved in `0001/01/` directory
 
 ### Daily File Format
 
-Each day's events and tasks are combined in a single `YYYY-MM-DD.md` file:
+Each day's events and tasks with due dates are combined in a single `YYYY-MM-DD.md` file:
 
 #### Standard Format
 
@@ -359,22 +408,21 @@ Each day's events and tasks are combined in a single `YYYY-MM-DD.md` file:
 
 ## All Day Events
 
-- **Company Holiday** (All Day) #event
+- **Company Holiday** (All Day) [Work] #event
 
 ## Scheduled Events
 
-- **Morning Standup** (09:00 - 09:30) @ Conference Room A #event
+- **Morning Standup** (09:00 - 09:30) @ Conference Room A [Work] #event
   Daily team sync meeting
-- **Project Review** (14:00 - 15:30) @ Room B #event
+- **Project Review** (14:00 - 15:30) @ Room B [Work] #event
   Quarterly project progress review
-- **One-on-One** at 16:00 @ Manager's Office #event
+- **One-on-One** at 16:00 @ Manager's Office [Personal] #event
   Weekly check-in meeting
 
 ## Tasks
 
-- [ ] **High Priority Task** - 📅 2024-01-15 #task
-- [x] **Completed Task** - 📅 2024-01-15 #task
-- [ ] **No Due Date Task** #task
+- [ ] **High Priority Task** - 📅 2024-01-15 [Work] #task
+- [x] **Completed Task** - 📅 2024-01-15 [Personal] #task
 ```
 
 #### With YAML Frontmatter (Static Site Generators)
@@ -414,13 +462,57 @@ type: daily-calendar
 - [x] **Completed Task** - 📅 2024-01-15 #task
 ```
 
+### Todo File Format
+
+Tasks without due dates are saved to a separate `todo.md` file in the output directory root:
+
+#### Standard Todo Format
+
+```markdown
+# Todo
+
+## Tasks
+
+- [ ] **Research new framework** (Priority: 2) - Status: NEEDS-ACTION #task
+  Investigate modern web frameworks for project
+- [x] **Update documentation** - Status: COMPLETED #task
+  Review and update project documentation
+- [ ] **Call client** (Priority: 1) - Status: NEEDS-ACTION #task
+```
+
+#### With YAML Frontmatter
+
+```markdown
+---
+title: Todo List
+task_count: 3
+type: todo
+tags:
+  - research
+  - documentation
+  - client
+---
+
+# Todo
+
+## Tasks
+
+- [ ] **Research new framework** (Priority: 2) - Status: NEEDS-ACTION #task
+  Investigate modern web frameworks for project
+- [x] **Update documentation** - Status: COMPLETED #task
+  Review and update project documentation
+- [ ] **Call client** (Priority: 1) - Status: NEEDS-ACTION #task
+```
+
 ### Smart File Merging
 
 The application intelligently merges content when files already exist:
 - **Preserves existing content**: Manual edits and custom content are retained
+- **Intelligent frontmatter merging**: Custom frontmatter fields are preserved while calendar statistics are updated
 - **Adds new items**: Fresh calendar data is merged with existing content
 - **Deduplicates automatically**: Duplicate events and tasks are removed
 - **Maintains organization**: Content stays properly organized in sections
+- **Custom sections preserved**: User-added sections like notes or custom headers are maintained
 
 ### Formatting Options
 
@@ -464,25 +556,76 @@ Use the ignore descriptions option for cleaner, more concise output when detaile
 
 **Events with Checkboxes (`-event-checkboxes` flag or `EVENT_CHECKBOXES=true`)**:
 ```markdown
-- [ ] **Team Meeting** (09:00 - 10:00) @ Conference Room A #event
-- [ ] **Project Review** (14:00 - 15:30) @ Room B #event
+- [x] **Past Meeting** (09:00 - 10:00) @ Conference Room A #event
+- [ ] **Future Meeting** (14:00 - 15:30) @ Room B #event
 ```
 
-Event checkboxes are useful for:
+Event checkboxes provide:
+- **Automatic Past Event Marking**: Past events are automatically marked as completed [x]
 - **Task-like Event Tracking**: Treat events as actionable items that can be checked off
 - **Meeting Attendance**: Track which meetings you've attended
-- **Event Completion**: Mark events as done in your workflow
+- **Time-aware Status**: Events are marked based on their actual end time
 - **Unified Format**: Maintain consistency with task checkboxes
+
+### Calendar Names and Aliases
+
+Calendar names are automatically extracted from events and tasks and displayed in square brackets. You can configure custom aliases for cleaner display names.
+
+**Configuration Example**:
+```env
+# Map long calendar names to shorter aliases
+CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work,Google Calendar:GCal,john.doe@company.com:John
+```
+
+**Output Examples**:
+
+**Without Aliases**:
+```markdown
+- **Team Meeting** (09:00 - 10:00) @ Conference Room A [Personal Calendar] #event
+- [ ] **Submit Report** - 📅 2024-01-15 [Work Calendar] #task
+```
+
+**With Aliases Applied**:
+```markdown
+- **Team Meeting** (09:00 - 10:00) @ Conference Room A [Personal] #event
+- [ ] **Submit Report** - 📅 2024-01-15 [Work] #task
+```
+
+**Calendar Name Sources**:
+- **X-WR-CALNAME Property**: Extracted from individual events/tasks when available
+- **PRODID Detection**: Automatically detects Google Calendar and other common sources
+- **ICS File Sources**: Calendar names from file metadata
+- **Multi-calendar Discovery**: Names from CalDAV calendar discovery
+
+**Benefits**:
+- **Source Identification**: Easily see which calendar each item came from
+- **Multi-calendar Organization**: Distinguish between work, personal, and shared calendars
+- **Clean Display**: Use short aliases instead of long technical calendar names
+- **Consistent Formatting**: Uniform display across all events and tasks
 
 ## Date/Time Format Support
 
-The application supports multiple iCalendar date/time formats:
+The application supports multiple iCalendar date/time formats with full time zone support:
 
+### Date/Time Formats
 - **UTC Time with Z suffix**: `20240924T143000Z` (September 24, 2024 at 14:30:00 UTC)
 - **Local Time without Z suffix**: `20240924T143000` (September 24, 2024 at 14:30:00 local time)
 - **Date Only**: `20240924` (September 24, 2024 - all-day event)
 
-This enhancement ensures compatibility with various CalDAV servers that may format date/time values differently.
+### Time Zone Support
+- **TZID Parameters**: Full support for TZID parameters in events and tasks
+- **IANA Time Zones**: Supports standard IANA time zone database (e.g., America/New_York, Europe/London)
+- **Common Mappings**: Built-in mappings for Microsoft Exchange and other system-specific time zone names
+- **Automatic Conversion**: Time zones are properly converted and displayed in their local time
+
+### Example Time Zone Usage
+```ics
+DTSTART;TZID=America/New_York:20240924T143000
+DTSTART;TZID=Europe/London:20240924T143000
+DTSTART;TZID=Eastern Standard Time:20240924T143000
+```
+
+This enhancement ensures compatibility with various CalDAV servers and accurate time representation across different time zones.
 
 ## Recurring Events and Tasks
 

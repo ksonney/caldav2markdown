@@ -1,0 +1,146 @@
+---
+# CalDAV2Markdown Multi-Source Configuration Example
+# This configuration demonstrates combining multiple calendar sources
+
+# Global Settings
+output: ./multi-calendar-output
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+
+# Display Options
+use_due_date_emoji: true      # Add 📅 emoji to due dates
+use_hashtags: true            # Add #event and #task hashtags
+use_frontmatter: true         # Add YAML frontmatter to markdown files
+ignore_descriptions: false    # Include event/task descriptions
+event_checkboxes: true        # Add checkboxes to events for task-like formatting
+obsidian_tasks: false         # Don't override individual settings with Obsidian preset
+trace_web_calls: false        # Enable for debugging HTTP requests
+
+# Calendar Sources
+sources:
+  # Source 1: Google Calendar with OAuth (Primary work calendar)
+  - type: caldav
+    name: Google Work Calendar
+    caldav:
+      url: https://apidata.googleusercontent.com/caldav/v2/primary/events
+      use_oauth: true
+      client_id: your-google-client-id.apps.googleusercontent.com
+      client_secret: your-google-client-secret
+      discover_calendars: true              # Auto-discover all calendars
+      use_server_side_filtering: true       # Use server-side date filtering for better performance
+      include_calendars:                    # Only process these calendars
+        - Work
+        - Meetings
+        - "Project Deadlines"               # Use quotes for names with spaces
+        - Conferences
+      exclude_calendars:                    # Skip these calendars
+        - Archive
+        - "Old Projects"
+        - Spam
+      calendar_aliases:                     # Rename calendars for cleaner display
+        "Work Calendar": "Work"
+        "Meeting Rooms": "Meetings"
+        "Project Deadlines": "Deadlines"
+        "Conference Schedule": "Conferences"
+
+  # Source 2: Personal Nextcloud CalDAV server
+  - type: caldav
+    name: Personal Nextcloud
+    caldav:
+      url: https://cloud.example.com/remote.php/dav/calendars/username/personal/
+      username: your-nextcloud-username
+      password: your-nextcloud-password
+      use_server_side_filtering: false      # Some servers don't support this
+      discover_calendars: false             # Process only the specified calendar
+      calendar_aliases:
+        "Personal": "Personal"
+        "Family Events": "Family"
+        "Birthdays": "Birthday"
+
+  # Source 3: Corporate CalDAV through proxy
+  - type: caldav
+    name: Corporate Exchange
+    caldav:
+      url: https://outlook.office365.com/owa/calendar/
+      username: employee@company.com
+      password: corporate-password
+      use_server_side_filtering: true
+      discover_calendars: true
+      include_calendars:
+        - Calendar
+        - "Shared Team Calendar"
+      calendar_aliases:
+        "Calendar": "Corporate"
+        "Shared Team Calendar": "Team"
+      # Corporate proxy settings
+      proxy_url: http://proxy.company.com:8080
+      proxy_username: proxy-username
+      proxy_password: proxy-password
+
+  # Source 4: Local ICS file (exported from another system)
+  - type: ics
+    name: Local Task File
+    ics:
+      type: local
+      path: /home/user/calendars/tasks.ics
+
+  # Source 5: Remote ICS with basic authentication
+  - type: ics
+    name: Team Calendar Export
+    ics:
+      type: remote
+      path: https://team.company.com/calendar/export.ics
+      auth: basic
+      username: team-member
+      password: team-export-password
+      timeout: 60s                          # Allow up to 60 seconds for download
+
+  # Source 6: Public holiday calendar (no authentication)
+  - type: ics
+    name: US Holidays
+    ics:
+      type: remote
+      path: https://calendar.google.com/calendar/ical/en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics
+      auth: none
+      timeout: 30s
+
+  # Source 7: API-based calendar with bearer token
+  - type: ics
+    name: Project Management System
+    ics:
+      type: remote
+      path: https://api.projecttool.com/calendar/export/deadlines.ics
+      auth: bearer
+      token: your-api-bearer-token-here
+      timeout: 45s
+
+  # Source 8: API with custom headers
+  - type: ics
+    name: CRM Calendar
+    ics:
+      type: remote
+      path: https://crm.company.com/api/v2/calendar/export
+      auth: header
+      timeout: 30s
+      headers:
+        Authorization: Bearer api-token-12345
+        X-Client-ID: caldav2markdown
+        X-API-Version: "2.1"
+        User-Agent: CalDAV2Markdown/1.0
+        Accept: text/calendar
+
+  # Source 9: Another local ICS file (different project)
+  - type: ics
+    name: Personal Projects
+    ics:
+      type: local
+      path: /home/user/projects/timeline.ics
+
+  # Source 10: Subscription calendar with custom timeout
+  - type: ics
+    name: Conference Schedule
+    ics:
+      type: remote
+      path: https://conference2024.example.com/schedule.ics
+      auth: none
+      timeout: 120s                         # Longer timeout for large conference schedules

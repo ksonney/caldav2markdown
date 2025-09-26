@@ -1,0 +1,97 @@
+---
+# Personal Calendar Configuration
+# Simple setup for individual users with multiple personal calendars
+
+# Global Settings
+output: ./my-calendars
+start_date: 2024-01-01T00:00:00Z
+end_date: 2024-12-31T23:59:59Z
+
+# Personal preference settings
+use_due_date_emoji: true      # I like emojis in my notes
+use_hashtags: true            # For easy searching
+use_frontmatter: true         # For my static site generator
+ignore_descriptions: false    # I want full context
+event_checkboxes: true        # Makes events actionable
+obsidian_tasks: false         # Manual control over settings
+
+sources:
+  # Primary Google Calendar
+  - type: caldav
+    name: Google Personal
+    caldav:
+      url: https://apidata.googleusercontent.com/caldav/v2/primary/events
+      use_oauth: true
+      client_id: my-google-client-id.apps.googleusercontent.com
+      client_secret: my-google-client-secret
+      discover_calendars: true
+      exclude_calendars:
+        - "Birthdays"           # Too many notifications
+        - "Holidays"            # I have a separate source for this
+      calendar_aliases:
+        "Personal": "Life"
+        "Work": "Job"
+        "Family": "Fam"
+
+  # iCloud Calendar (via CalDAV)
+  - type: caldav
+    name: iCloud
+    caldav:
+      url: https://caldav.icloud.com/
+      username: my-apple-id@icloud.com
+      password: app-specific-password  # Generate this in Apple ID settings
+      discover_calendars: true
+      calendar_aliases:
+        "Calendar": "iCloud"
+        "Reminders": "Tasks"
+
+  # Local task files I maintain
+  - type: ics
+    name: Personal Projects
+    ics:
+      type: local
+      path: /home/user/Documents/projects.ics
+
+  - type: ics
+    name: Home Maintenance
+    ics:
+      type: local
+      path: /home/user/Documents/home-tasks.ics
+
+  # Subscription calendars
+  - type: ics
+    name: US Holidays
+    ics:
+      type: remote
+      path: https://calendar.google.com/calendar/ical/en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics
+      auth: none
+      timeout: 30s
+
+  - type: ics
+    name: Local Events
+    ics:
+      type: remote
+      path: https://www.mycity.gov/events/calendar.ics
+      auth: none
+      timeout: 45s
+
+  # Fitness tracking calendar
+  - type: ics
+    name: Gym Classes
+    ics:
+      type: remote
+      path: https://mygym.com/api/classes/calendar.ics
+      auth: basic
+      username: my-gym-member-id
+      password: my-gym-password
+      timeout: 30s
+
+  # Subscription services
+  - type: ics
+    name: Concert Tickets
+    ics:
+      type: remote
+      path: https://ticketmaster.com/api/my-events.ics
+      auth: bearer
+      token: my-ticketmaster-api-token
+      timeout: 30s

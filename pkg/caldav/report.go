@@ -53,8 +53,8 @@ type MultiStatus struct {
 }
 
 type Response struct {
-	Href     string   `xml:"DAV: href"`
-	PropStat PropStat `xml:"DAV: propstat"`
+	Href      string     `xml:"DAV: href"`
+	PropStats []PropStat `xml:"DAV: propstat"`
 }
 
 type PropStat struct {
@@ -65,6 +65,88 @@ type PropStat struct {
 type ResponseProp struct {
 	GetETag      string `xml:"DAV: getetag,omitempty"`
 	CalendarData string `xml:"urn:ietf:params:xml:ns:caldav calendar-data,omitempty"`
+}
+
+// parseMultiStatusResponse extracts calendar data from a multistatus response with enhanced error handling
+func parseMultiStatusResponse(multiStatus *MultiStatus, traceWebCalls bool) ([]string, error) {
+	var calendarData []string
+	var errors []string
+	successCount := 0
+
+	if traceWebCalls {
+		fmt.Printf("=== Parsing MultiStatus Response ===\n")
+		fmt.Printf("Total responses: %d\n", len(multiStatus.Responses))
+	}
+
+	for i, response := range multiStatus.Responses {
+		if traceWebCalls {
+			fmt.Printf("Response %d: %s\n", i+1, response.Href)
+			fmt.Printf("  PropStats count: %d\n", len(response.PropStats))
+		}
+
+		// A response can have multiple propstat elements, we need to check each one
+		foundData := false
+		for j, propStat := range response.PropStats {
+			if traceWebCalls {
+				fmt.Printf("  PropStat %d: Status = %s\n", j+1, propStat.Status)
+			}
+
+			// Check propstat status - should be "HTTP/1.1 200 OK" for successful responses
+			if !strings.Contains(propStat.Status, "200") {
+				errors = append(errors, fmt.Sprintf("Resource %s returned status: %s", response.Href, propStat.Status))
+				continue
+			}
+
+			if propStat.Prop.CalendarData != "" {
+				calendarData = append(calendarData, propStat.Prop.CalendarData)
+				successCount++
+				foundData = true
+				if traceWebCalls {
+					fmt.Printf("    Found calendar data (%d bytes)\n", len(propStat.Prop.CalendarData))
+				}
+				break // Only need one successful calendar-data per response
+			}
+		}
+
+		// If no successful propstat was found for this response, log it
+		if !foundData && len(response.PropStats) > 0 {
+			// Check if there were any propstats at all
+			hasCalendarDataProp := false
+			for _, propStat := range response.PropStats {
+				if propStat.Prop.CalendarData != "" {
+					hasCalendarDataProp = true
+					break
+				}
+			}
+			if !hasCalendarDataProp {
+				errors = append(errors, fmt.Sprintf("Resource %s has no calendar data", response.Href))
+			}
+		}
+	}
+
+	if traceWebCalls {
+		fmt.Printf("=== MultiStatus Parsing Complete ===\n")
+		fmt.Printf("Success count: %d\n", successCount)
+		fmt.Printf("Error count: %d\n", len(errors))
+	}
+
+	// Log any errors but don't fail the entire operation
+	if len(errors) > 0 {
+		fmt.Printf("Warning: Some calendar resources had errors:\n")
+		for _, errMsg := range errors {
+			fmt.Printf("  %s\n", errMsg)
+		}
+	}
+
+	if len(calendarData) == 0 && len(errors) > 0 {
+		return nil, fmt.Errorf("no calendar data retrieved: all %d responses had errors", len(errors))
+	}
+
+	if successCount > 0 {
+		fmt.Printf("Successfully retrieved %d calendar objects\n", successCount)
+	}
+
+	return calendarData, nil
 }
 
 // generateCalendarQuery creates a CalDAV calendar-query REPORT request XML
@@ -170,15 +252,8 @@ func (c *Client) performCalendarQuery(startDate, endDate time.Time, componentTyp
 		return nil, fmt.Errorf("failed to parse REPORT response XML: %w", err)
 	}
 
-	// Extract calendar data from responses
-	var calendarData []string
-	for _, response := range multiStatus.Responses {
-		if response.PropStat.Prop.CalendarData != "" {
-			calendarData = append(calendarData, response.PropStat.Prop.CalendarData)
-		}
-	}
-
-	return calendarData, nil
+	// Extract calendar data using the enhanced multistatus parser
+	return parseMultiStatusResponse(&multiStatus, c.traceWebCalls)
 }
 
 // GetEventsWithServerSideFiltering uses CalDAV REPORT queries to fetch events with server-side filtering

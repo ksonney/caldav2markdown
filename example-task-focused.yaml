@@ -1,0 +1,77 @@
+---
+# Task Management Focused Configuration
+# Optimized for task tracking and project management
+
+# Global Settings
+output: ./task-management
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+
+# Task-optimized display settings
+obsidian_tasks: true          # Enables: event_checkboxes, ignore_descriptions, frontmatter, emojis, hashtags
+# Note: obsidian_tasks preset automatically sets:
+# - event_checkboxes: true
+# - ignore_descriptions: true
+# - use_frontmatter: true
+# - use_due_date_emoji: true
+# - use_hashtags: true
+
+sources:
+  # Google Tasks via CalDAV
+  - type: caldav
+    name: Google Tasks
+    caldav:
+      url: https://apidata.googleusercontent.com/caldav/v2/primary/events
+      use_oauth: true
+      client_id: google-tasks-client-id
+      client_secret: google-tasks-client-secret
+      discover_calendars: true
+      calendar_aliases:
+        "Tasks": "Personal"
+        "Work Tasks": "Work"
+
+  # Local todo files
+  - type: ics
+    name: Personal Todo List
+    ics:
+      type: local
+      path: /home/user/todos/personal.ics
+
+  - type: ics
+    name: Work Todo List
+    ics:
+      type: local
+      path: /home/user/todos/work.ics
+
+  # Jira/Confluence task export
+  - type: ics
+    name: Jira Tasks
+    ics:
+      type: remote
+      path: https://company.atlassian.net/sr/jira.issueviews:searchrequest-calendar/temp/SearchRequest.ics
+      auth: basic
+      username: jira-username
+      password: jira-api-token
+      timeout: 60s
+
+  # GitHub project deadlines
+  - type: ics
+    name: GitHub Milestones
+    ics:
+      type: remote
+      path: https://api.github.com/repos/owner/repo/milestones.ics
+      auth: bearer
+      token: github-personal-access-token
+      timeout: 30s
+
+  # Asana project calendar
+  - type: ics
+    name: Asana Projects
+    ics:
+      type: remote
+      path: https://app.asana.com/api/1.0/projects/123456789/calendar_export
+      auth: header
+      timeout: 45s
+      headers:
+        Authorization: Bearer asana-access-token
+        Accept: text/calendar

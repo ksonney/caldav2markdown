@@ -32,6 +32,7 @@ func main() {
 		ignoreDescriptions     = flag.Bool("ignore-descriptions", false, "Ignore event and task descriptions in output")
 		eventCheckboxes        = flag.Bool("event-checkboxes", false, "Add checkboxes to events for task-like formatting")
 		obsidianTasks          = flag.Bool("obsidian-tasks", false, "Enable Obsidian tasks preset (event checkboxes, ignore descriptions, frontmatter, emojis, hashtags)")
+		useCalendarTags        = flag.Bool("calendar-tags", false, "Add calendar name tags to events and tasks")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -40,6 +41,10 @@ func main() {
 		useOAuth               = flag.Bool("oauth", false, "Use OAuth 2.0 authentication for Google Calendar")
 		clientID               = flag.String("client-id", "", "Google OAuth Client ID")
 		clientSecret           = flag.String("client-secret", "", "Google OAuth Client Secret")
+		// Proxy flags
+		proxyURL               = flag.String("proxy-url", "", "Proxy server URL (e.g., http://proxy.example.com:8080)")
+		proxyUsername          = flag.String("proxy-username", "", "Proxy username for authentication")
+		proxyPassword          = flag.String("proxy-password", "", "Proxy password for authentication")
 		// New ICS flags
 		sourceMode             = flag.String("source-mode", "", "Source mode: caldav or ics (default: caldav)")
 		icsPath                = flag.String("ics-path", "", "Path to local ICS file")
@@ -48,6 +53,9 @@ func main() {
 		icsUsername            = flag.String("ics-username", "", "Username for ICS basic auth")
 		icsPassword            = flag.String("ics-password", "", "Password for ICS basic auth")
 		icsToken               = flag.String("ics-token", "", "Token for ICS bearer auth")
+		// YAML conversion flags
+		convertToYAML          = flag.String("convert-to-yaml", "", "Convert env config file to YAML format and save to specified path")
+		exportYAML             = flag.String("export-yaml", "", "Export current configuration to YAML file")
 	)
 	flag.Parse()
 
@@ -55,13 +63,36 @@ func main() {
 
 	if _, err := os.Stat(*configFile); err == nil {
 		fmt.Printf("Loading configuration from %s\n", *configFile)
-		cfg, err = config.LoadFromEnvFile(*configFile)
+		cfg, err = config.LoadConfig(*configFile)
 		if err != nil {
 			fmt.Printf("Warning: failed to load config file: %v\n", err)
 			cfg = &config.Config{}
 		}
 	} else {
 		cfg = &config.Config{}
+	}
+
+	// Handle YAML conversion flags
+	if *convertToYAML != "" {
+		fmt.Printf("Converting env config to YAML format...\n")
+		err := config.ConvertEnvToYAML(*configFile, *convertToYAML)
+		if err != nil {
+			fmt.Printf("Error converting to YAML: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Successfully converted %s to %s\n", *configFile, *convertToYAML)
+		return
+	}
+
+	if *exportYAML != "" {
+		fmt.Printf("Exporting current configuration to YAML...\n")
+		err := cfg.SaveToYAMLFile(*exportYAML)
+		if err != nil {
+			fmt.Printf("Error exporting to YAML: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Successfully exported configuration to %s\n", *exportYAML)
+		return
 	}
 
 	if *url != "" {
@@ -97,6 +128,9 @@ func main() {
 	if *obsidianTasks {
 		cfg.ObsidianTasks = true
 	}
+	if *useCalendarTags {
+		cfg.UseCalendarTags = true
+	}
 	if *useServerSideFiltering {
 		cfg.UseServerSideFiltering = true
 	}
@@ -123,6 +157,15 @@ func main() {
 	}
 	if *clientSecret != "" {
 		cfg.ClientSecret = *clientSecret
+	}
+	if *proxyURL != "" {
+		cfg.ProxyURL = *proxyURL
+	}
+	if *proxyUsername != "" {
+		cfg.ProxyUsername = *proxyUsername
+	}
+	if *proxyPassword != "" {
+		cfg.ProxyPassword = *proxyPassword
 	}
 
 	// Handle ICS flags
@@ -223,6 +266,11 @@ func main() {
 		fmt.Println("    -exclude-calendars      Comma-separated list of calendar names to exclude")
 		fmt.Println("    -list-calendars         List available calendars and exit")
 		fmt.Println("")
+		fmt.Println("Proxy Options (for all modes):")
+		fmt.Println("  -proxy-url        Proxy server URL (e.g., http://proxy.example.com:8080)")
+		fmt.Println("  -proxy-username   Proxy username for authentication")
+		fmt.Println("  -proxy-password   Proxy password for authentication")
+		fmt.Println("")
 		fmt.Println("ICS Mode Options:")
 		fmt.Println("  Source (choose one):")
 		fmt.Println("    -ics-path         Path to local ICS file")
@@ -259,25 +307,34 @@ func main() {
 		}
 	}
 
-	// Process based on source mode
+	// Process sources (either multi-source or legacy single-source)
 	var events []*ics.VEvent
 	var todos []*ics.VTodo
 	var duplicatesFound int
 
-	switch cfg.SourceMode {
-	case config.SourceModeCalDAV:
-		if err := processCalDAVMode(cfg, progressCallback, *listCalendars, *testConn, &events, &todos, &duplicatesFound); err != nil {
+	if cfg.HasMultipleSources() {
+		// Multi-source processing
+		if err := processMultipleSources(cfg, progressCallback, *listCalendars, *testConn, &events, &todos, &duplicatesFound); err != nil {
 			fmt.Printf("\nError: %v\n", err)
 			os.Exit(1)
 		}
-	case config.SourceModeICS:
-		if err := processICSMode(cfg, progressCallback, &events, &todos, &duplicatesFound); err != nil {
-			fmt.Printf("\nError: %v\n", err)
+	} else {
+		// Legacy single-source processing
+		switch cfg.SourceMode {
+		case config.SourceModeCalDAV:
+			if err := processCalDAVMode(cfg, progressCallback, *listCalendars, *testConn, &events, &todos, &duplicatesFound); err != nil {
+				fmt.Printf("\nError: %v\n", err)
+				os.Exit(1)
+			}
+		case config.SourceModeICS:
+			if err := processICSMode(cfg, progressCallback, &events, &todos, &duplicatesFound); err != nil {
+				fmt.Printf("\nError: %v\n", err)
+				os.Exit(1)
+			}
+		default:
+			fmt.Printf("Unsupported source mode: %s\n", cfg.SourceMode)
 			os.Exit(1)
 		}
-	default:
-		fmt.Printf("Unsupported source mode: %s\n", cfg.SourceMode)
-		os.Exit(1)
 	}
 
 	if len(events) == 0 && len(todos) == 0 {
@@ -308,7 +365,7 @@ func main() {
 	if len(events) > 0 {
 		fmt.Print("Converting events to markdown format...")
 		for i, event := range events {
-			eventMarkdowns = append(eventMarkdowns, markdown.ConvertEvent(event))
+			eventMarkdowns = append(eventMarkdowns, markdown.ConvertEventWithCalendar(event, "", cfg.CalendarAliases))
 			if len(events) > 10 && (i+1)%10 == 0 {
 				fmt.Printf("\rConverting events to markdown format... (%d/%d)", i+1, len(events))
 			}
@@ -321,13 +378,13 @@ func main() {
 	if len(todos) > 0 {
 		fmt.Printf("Converting %d tasks to markdown format...\n", len(todos))
 		for _, todo := range todos {
-			todoMarkdowns = append(todoMarkdowns, markdown.ConvertTodo(todo))
+			todoMarkdowns = append(todoMarkdowns, markdown.ConvertTodoWithCalendar(todo, "", cfg.CalendarAliases))
 		}
 	}
 
 	// Generate daily aggregated files with both events and tasks
 	fmt.Println("Generating daily files...")
-	if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, progressCallback); err != nil {
+	if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, progressCallback); err != nil {
 		fmt.Printf("\nFailed to generate daily files: %v\n", err)
 		os.Exit(1)
 	}
@@ -374,6 +431,10 @@ func processCalDAVMode(cfg *config.Config, progressCallback func(string, int, in
 		DiscoverCalendars:      cfg.DiscoverCalendars,
 		IncludeCalendars:       cfg.IncludeCalendars,
 		ExcludeCalendars:       cfg.ExcludeCalendars,
+		TraceWebCalls:          cfg.TraceWebCalls,
+		ProxyURL:               cfg.ProxyURL,
+		ProxyUsername:          cfg.ProxyUsername,
+		ProxyPassword:          cfg.ProxyPassword,
 	}
 
 	client := caldav.NewClient(caldavConfig)
@@ -454,6 +515,198 @@ func processICSMode(cfg *config.Config, progressCallback func(string, int, int),
 	*duplicatesFound = result.DuplicatesFound
 
 	return nil
+}
+
+// processMultipleSources handles multi-source processing
+func processMultipleSources(cfg *config.Config, progressCallback func(string, int, int), listCalendars, testConn bool, events *[]*ics.VEvent, todos *[]*ics.VTodo, duplicatesFound *int) error {
+	sources := cfg.GetSources()
+	if len(sources) == 0 {
+		return fmt.Errorf("no sources configured")
+	}
+
+	fmt.Printf("Processing %d calendar source(s)...\n", len(sources))
+
+	var allEvents []*ics.VEvent
+	var allTodos []*ics.VTodo
+	var totalDuplicates int
+	seenUIDs := make(map[string]bool)
+
+	var totalSourceDuplicates int
+	for i, source := range sources {
+		fmt.Printf("\n--- Processing source %d/%d: %s (%s) ---\n", i+1, len(sources), source.Name, source.Type)
+
+		var sourceEvents []*ics.VEvent
+		var sourceTodos []*ics.VTodo
+		var sourceDuplicates int
+
+		switch source.Type {
+		case "caldav":
+			if err := processCalDAVSource(source.CalDAVSource, cfg, progressCallback, listCalendars, testConn, &sourceEvents, &sourceTodos, &sourceDuplicates); err != nil {
+				fmt.Printf("Warning: Failed to process CalDAV source '%s': %v\n", source.Name, err)
+				continue
+			}
+		case "ics":
+			if err := processICSSource(source.ICSSource, cfg, progressCallback, &sourceEvents, &sourceTodos, &sourceDuplicates); err != nil {
+				fmt.Printf("Warning: Failed to process ICS source '%s': %v\n", source.Name, err)
+				continue
+			}
+		default:
+			fmt.Printf("Warning: Unsupported source type '%s' for source '%s'\n", source.Type, source.Name)
+			continue
+		}
+
+		// Apply global deduplication across all sources
+		eventsAdded := 0
+		todosAdded := 0
+
+		// Deduplicate events globally
+		for _, event := range sourceEvents {
+			uid := getEventUID(event)
+			if uid != "" && seenUIDs[uid] {
+				totalDuplicates++
+				continue
+			}
+			if uid != "" {
+				seenUIDs[uid] = true
+			}
+			allEvents = append(allEvents, event)
+			eventsAdded++
+		}
+
+		// Deduplicate todos globally
+		for _, todo := range sourceTodos {
+			uid := getTodoUID(todo)
+			if uid != "" && seenUIDs[uid] {
+				totalDuplicates++
+				continue
+			}
+			if uid != "" {
+				seenUIDs[uid] = true
+			}
+			allTodos = append(allTodos, todo)
+			todosAdded++
+		}
+
+		fmt.Printf("Source '%s' contributed %d events and %d tasks", source.Name, eventsAdded, todosAdded)
+		if len(sourceEvents)-eventsAdded > 0 || len(sourceTodos)-todosAdded > 0 {
+			fmt.Printf(" (%d duplicates skipped)", (len(sourceEvents)-eventsAdded)+(len(sourceTodos)-todosAdded))
+		}
+		fmt.Println()
+
+		totalSourceDuplicates += sourceDuplicates
+	}
+
+	*events = allEvents
+	*todos = allTodos
+	*duplicatesFound = totalDuplicates + totalSourceDuplicates
+
+	if totalDuplicates > 0 {
+		fmt.Printf("\nGlobal deduplication removed %d duplicate items across all sources\n", totalDuplicates)
+	}
+
+	fmt.Printf("\nTotal: %d events and %d tasks from %d sources\n", len(allEvents), len(allTodos), len(sources))
+
+	return nil
+}
+
+// processCalDAVSource processes a single CalDAV source
+func processCalDAVSource(source *config.CalDAVSource, cfg *config.Config, progressCallback func(string, int, int), listCalendars, testConn bool, events *[]*ics.VEvent, todos *[]*ics.VTodo, duplicatesFound *int) error {
+	// Create CalDAV client configuration from source
+	clientConfig := caldav.Config{
+		URL:                    source.URL,
+		Username:               source.Username,
+		Password:               source.Password,
+		StartDate:              cfg.StartDate,
+		EndDate:                cfg.EndDate,
+		UseOAuth:               source.UseOAuth,
+		ClientID:               source.ClientID,
+		ClientSecret:           source.ClientSecret,
+		UseServerSideFiltering: source.UseServerSideFiltering,
+		DiscoverCalendars:      source.DiscoverCalendars,
+		IncludeCalendars:       source.IncludeCalendars,
+		ExcludeCalendars:       source.ExcludeCalendars,
+		TraceWebCalls:          cfg.TraceWebCalls,
+		ProxyURL:               source.ProxyURL,
+		ProxyUsername:          source.ProxyUsername,
+		ProxyPassword:          source.ProxyPassword,
+	}
+
+	client := caldav.NewClient(clientConfig)
+
+	// Handle test connection
+	if testConn {
+		fmt.Printf("Testing connection to CalDAV source '%s'...\n", source.Name)
+		if err := client.TestConnection(); err != nil {
+			return fmt.Errorf("connection test failed: %w", err)
+		}
+		fmt.Println("Connection test successful!")
+		return nil
+	}
+
+	// Handle list calendars
+	if listCalendars {
+		fmt.Printf("Listing calendars for source '%s'...\n", source.Name)
+		calendars, err := client.DiscoverCalendars()
+		if err != nil {
+			return fmt.Errorf("failed to discover calendars: %w", err)
+		}
+
+		if len(calendars) == 0 {
+			fmt.Println("No calendars found")
+		} else {
+			fmt.Printf("Found %d calendar(s):\n", len(calendars))
+			for i, cal := range calendars {
+				fmt.Printf("  %d. %s (%s) - Components: %v\n", i+1, cal.DisplayName, cal.URL, cal.Components)
+			}
+		}
+		return nil
+	}
+
+	// Fetch events and todos
+	result, err := client.GetEventsWithDeduplicationAndProgress(progressCallback)
+	if err != nil {
+		return fmt.Errorf("failed to fetch calendar data: %w", err)
+	}
+
+	*events = result.Events
+	*todos = result.Todos
+	*duplicatesFound = result.DuplicatesFound
+
+	return nil
+}
+
+// processICSSource processes a single ICS source
+func processICSSource(source *icsource.Source, cfg *config.Config, progressCallback func(string, int, int), events *[]*ics.VEvent, todos *[]*ics.VTodo, duplicatesFound *int) error {
+	// Create processor with single source
+	processor := icsource.NewProcessor([]icsource.Source{*source}, cfg.StartDate, cfg.EndDate)
+
+	// Process the source
+	ctx := context.Background()
+	result, err := processor.ProcessSources(ctx, progressCallback)
+	if err != nil {
+		return fmt.Errorf("failed to process ICS source: %w", err)
+	}
+
+	*events = result.Events
+	*todos = result.Todos
+	*duplicatesFound = result.DuplicatesFound
+
+	return nil
+}
+
+// Helper functions for UID extraction
+func getEventUID(event *ics.VEvent) string {
+	if uid := event.GetProperty(ics.ComponentPropertyUniqueId); uid != nil {
+		return uid.Value
+	}
+	return ""
+}
+
+func getTodoUID(todo *ics.VTodo) string {
+	if uid := todo.GetProperty(ics.ComponentPropertyUniqueId); uid != nil {
+		return uid.Value
+	}
+	return ""
 }
 
 func writeMarkdownFile(filename, content string) error {

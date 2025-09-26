@@ -203,7 +203,13 @@ func (p *Processor) isEventInDateRange(event *ics.VEvent) bool {
 		return true // Include events without start date
 	}
 
-	startTime, _, err := parseICalDateTime(dtstart.Value)
+	// Extract TZID parameter if present
+	var tzid string
+	if tzids, exists := dtstart.ICalParameters["TZID"]; exists && len(tzids) > 0 {
+		tzid = tzids[0]
+	}
+
+	startTime, _, err := parseICalDateTimeWithTZ(dtstart.Value, tzid)
 	if err != nil {
 		return true // Include events with unparseable dates
 	}
@@ -223,7 +229,13 @@ func (p *Processor) isTodoInDateRange(todo *ics.VTodo) bool {
 		return true // Include todos without due date
 	}
 
-	dueTime, _, err := parseICalDateTime(due.Value)
+	// Extract TZID parameter if present
+	var tzid string
+	if tzids, exists := due.ICalParameters["TZID"]; exists && len(tzids) > 0 {
+		tzid = tzids[0]
+	}
+
+	dueTime, _, err := parseICalDateTimeWithTZ(due.Value, tzid)
 	if err != nil {
 		return true // Include todos with unparseable dates
 	}
@@ -248,7 +260,13 @@ func (p *Processor) expandRecurringEvent(event *ics.VEvent) []*ics.VEvent {
 		return []*ics.VEvent{event} // No start date, return as-is
 	}
 
-	_, _, err := parseICalDateTime(dtstart.Value)
+	// Extract TZID parameter if present
+	var tzid string
+	if tzids, exists := dtstart.ICalParameters["TZID"]; exists && len(tzids) > 0 {
+		tzid = tzids[0]
+	}
+
+	_, _, err := parseICalDateTimeWithTZ(dtstart.Value, tzid)
 	if err != nil {
 		return []*ics.VEvent{event} // Unparseable start date, return as-is
 	}
@@ -279,11 +297,21 @@ func (p *Processor) expandRecurringTodo(todo *ics.VTodo) []*ics.VTodo {
 
 	// Check for parseable dates
 	if due != nil {
-		if _, _, err := parseICalDateTime(due.Value); err != nil {
+		// Extract TZID parameter if present
+		var tzid string
+		if tzids, exists := due.ICalParameters["TZID"]; exists && len(tzids) > 0 {
+			tzid = tzids[0]
+		}
+		if _, _, err := parseICalDateTimeWithTZ(due.Value, tzid); err != nil {
 			return []*ics.VTodo{todo} // Unparseable due date, return as-is
 		}
 	} else if dtstart != nil {
-		if _, _, err := parseICalDateTime(dtstart.Value); err != nil {
+		// Extract TZID parameter if present
+		var tzid string
+		if tzids, exists := dtstart.ICalParameters["TZID"]; exists && len(tzids) > 0 {
+			tzid = tzids[0]
+		}
+		if _, _, err := parseICalDateTimeWithTZ(dtstart.Value, tzid); err != nil {
 			return []*ics.VTodo{todo} // Unparseable start date, return as-is
 		}
 	}
@@ -301,6 +329,11 @@ func (p *Processor) expandRecurringTodo(todo *ics.VTodo) []*ics.VTodo {
 
 // parseICalDateTime parses iCalendar date/time formats (duplicated from CalDAV for consistency)
 func parseICalDateTime(value string) (time.Time, bool, error) {
+	return parseICalDateTimeWithTZ(value, "")
+}
+
+// parseICalDateTimeWithTZ parses iCalendar date/time formats with optional time zone
+func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 	if strings.HasPrefix(value, "0001") {
 		return time.Time{}, false, nil
 	}
@@ -310,7 +343,26 @@ func parseICalDateTime(value string) (time.Time, bool, error) {
 		return t, false, nil
 	}
 
-	// Try local time format without Z suffix
+	// Handle local time with TZID
+	if tzid != "" {
+		if t, err := time.Parse("20060102T150405", value); err == nil {
+			// Load the time zone
+			if loc, err := time.LoadLocation(tzid); err == nil {
+				// Parse the time in the specified time zone
+				localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+				return localTime, false, nil
+			}
+			// If time zone loading fails, try common time zone mappings
+			if loc := mapTimeZone(tzid); loc != nil {
+				localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+				return localTime, false, nil
+			}
+			// Fallback: return the time as-is if time zone cannot be resolved
+			return t, false, nil
+		}
+	}
+
+	// Try local time format without Z suffix (fallback)
 	if t, err := time.Parse("20060102T150405", value); err == nil {
 		return t, false, nil
 	}
@@ -321,4 +373,30 @@ func parseICalDateTime(value string) (time.Time, bool, error) {
 	}
 
 	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s", value)
+}
+
+// mapTimeZone provides common time zone ID mappings for CalDAV/iCalendar compatibility
+func mapTimeZone(tzid string) *time.Location {
+	// Common mappings for Microsoft Exchange and other systems
+	commonMappings := map[string]string{
+		"Eastern Standard Time":         "America/New_York",
+		"Central Standard Time":         "America/Chicago",
+		"Mountain Standard Time":        "America/Denver",
+		"Pacific Standard Time":         "America/Los_Angeles",
+		"GMT Standard Time":             "Europe/London",
+		"Central European Standard Time": "Europe/Berlin",
+		"Tokyo Standard Time":           "Asia/Tokyo",
+		"China Standard Time":           "Asia/Shanghai",
+		"India Standard Time":           "Asia/Kolkata",
+		"Australian Eastern Standard Time": "Australia/Sydney",
+		// Add more mappings as needed
+	}
+
+	if iana, exists := commonMappings[tzid]; exists {
+		if loc, err := time.LoadLocation(iana); err == nil {
+			return loc
+		}
+	}
+
+	return nil
 }

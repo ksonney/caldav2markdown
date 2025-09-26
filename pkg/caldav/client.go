@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -38,6 +40,69 @@ func parseICalDateTime(value string) (time.Time, bool, error) {
 	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s", value)
 }
 
+// tracingTransport is a custom HTTP transport that logs requests and responses
+type tracingTransport struct {
+	transport http.RoundTripper
+}
+
+func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Log the request
+	fmt.Printf("\n=== HTTP Request ===\n")
+	if reqDump, err := httputil.DumpRequestOut(req, true); err == nil {
+		fmt.Printf("%s\n", string(reqDump))
+	} else {
+		fmt.Printf("Failed to dump request: %v\n", err)
+	}
+
+	// Execute the request
+	resp, err := t.transport.RoundTrip(req)
+	if err != nil {
+		fmt.Printf("=== HTTP Request Failed ===\n")
+		fmt.Printf("Error: %v\n", err)
+		return resp, err
+	}
+
+	// Log the response
+	fmt.Printf("=== HTTP Response ===\n")
+	if respDump, err := httputil.DumpResponse(resp, true); err == nil {
+		fmt.Printf("%s\n", string(respDump))
+	} else {
+		fmt.Printf("Failed to dump response: %v\n", err)
+	}
+	fmt.Printf("=== End Trace ===\n\n")
+
+	return resp, err
+}
+
+func newTracingHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &tracingTransport{
+			transport: http.DefaultTransport,
+		},
+	}
+}
+
+// createHTTPTransport creates an HTTP transport with optional proxy support
+func createHTTPTransport(proxyURL, proxyUsername, proxyPassword string) (http.RoundTripper, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	if proxyURL != "" {
+		proxy, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+
+		// Add proxy authentication if credentials provided
+		if proxyUsername != "" && proxyPassword != "" {
+			proxy.User = url.UserPassword(proxyUsername, proxyPassword)
+		}
+
+		transport.Proxy = http.ProxyURL(proxy)
+	}
+
+	return transport, nil
+}
+
 type Client struct {
 	webdavClient           *gowebdav.Client
 	httpClient             *http.Client
@@ -51,6 +116,7 @@ type Client struct {
 	enableCalendarDiscovery bool
 	includeCalendars       []string
 	excludeCalendars       []string
+	traceWebCalls          bool
 }
 
 type Config struct {
@@ -69,6 +135,12 @@ type Config struct {
 	DiscoverCalendars     bool
 	IncludeCalendars      []string // Specific calendar names/URLs to include
 	ExcludeCalendars      []string // Specific calendar names/URLs to exclude
+	// Debug options
+	TraceWebCalls         bool
+	// Proxy options
+	ProxyURL              string
+	ProxyUsername         string
+	ProxyPassword         string
 }
 
 func NewClient(config Config) *Client {
@@ -83,12 +155,24 @@ func NewClient(config Config) *Client {
 		enableCalendarDiscovery: config.DiscoverCalendars,
 		includeCalendars:       config.IncludeCalendars,
 		excludeCalendars:       config.ExcludeCalendars,
+		traceWebCalls:          config.TraceWebCalls,
+	}
+
+	// Create transport with proxy support
+	transport, err := createHTTPTransport(config.ProxyURL, config.ProxyUsername, config.ProxyPassword)
+	if err != nil {
+		fmt.Printf("Warning: failed to create proxy transport: %v\n", err)
+		transport = http.DefaultTransport
 	}
 
 	if config.UseOAuth {
 		oauthClient := oauth.NewClient(oauth.Config{
-			ClientID:     config.ClientID,
-			ClientSecret: config.ClientSecret,
+			ClientID:      config.ClientID,
+			ClientSecret:  config.ClientSecret,
+			TraceWebCalls: config.TraceWebCalls,
+			ProxyURL:      config.ProxyURL,
+			ProxyUsername: config.ProxyUsername,
+			ProxyPassword: config.ProxyPassword,
 		})
 
 		httpClient, err := oauthClient.GetHTTPClient(context.Background())
@@ -97,13 +181,28 @@ func NewClient(config Config) *Client {
 			// In production, you might want to return the error
 			fmt.Printf("Warning: OAuth failed, falling back to basic auth: %v\n", err)
 			c.webdavClient = gowebdav.NewClient(config.URL, config.Username, config.Password)
+			if config.TraceWebCalls {
+				c.webdavClient.SetTransport(&tracingTransport{transport: transport})
+			} else {
+				c.webdavClient.SetTransport(transport)
+			}
 		} else {
 			c.httpClient = httpClient
 			c.webdavClient = gowebdav.NewClient(config.URL, "", "")
-			c.webdavClient.SetTransport(httpClient.Transport)
+			if config.TraceWebCalls {
+				// Wrap the OAuth transport with tracing
+				c.webdavClient.SetTransport(&tracingTransport{transport: httpClient.Transport})
+			} else {
+				c.webdavClient.SetTransport(httpClient.Transport)
+			}
 		}
 	} else {
 		c.webdavClient = gowebdav.NewClient(config.URL, config.Username, config.Password)
+		if config.TraceWebCalls {
+			c.webdavClient.SetTransport(&tracingTransport{transport: transport})
+		} else {
+			c.webdavClient.SetTransport(transport)
+		}
 	}
 
 	return c
@@ -378,14 +477,10 @@ func (c *Client) isTodoInDateRange(todo *ics.VTodo) bool {
 }
 
 func (c *Client) TestConnection() error {
-	resp, err := http.Get(c.baseURL)
+	// Test connection by attempting to connect using the WebDAV client
+	err := c.webdavClient.Connect()
 	if err != nil {
 		return fmt.Errorf("connection test failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("server returned error status: %d", resp.StatusCode)
 	}
 
 	return nil

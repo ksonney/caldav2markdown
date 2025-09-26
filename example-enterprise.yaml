@@ -1,0 +1,169 @@
+---
+# Enterprise Multi-Tenant Configuration
+# For organizations with multiple calendar systems and strict security requirements
+
+# Global Settings
+output: ./enterprise-calendars
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+
+# Conservative display settings for business use
+use_due_date_emoji: false     # Professional appearance
+use_hashtags: true            # For categorization
+use_frontmatter: true         # For metadata tracking
+ignore_descriptions: false    # Keep full context
+event_checkboxes: false       # Traditional calendar view
+trace_web_calls: true         # Enable for security auditing
+
+sources:
+  # Primary Office 365 tenant
+  - type: caldav
+    name: Office 365 Primary
+    caldav:
+      url: https://outlook.office365.com/owa/calendar/your-primary-tenant@company.com/
+      username: primary-service-account@company.com
+      password: service-account-password
+      use_server_side_filtering: true
+      discover_calendars: true
+      include_calendars:
+        - "Primary Calendar"
+        - "Shared Resources"
+        - "Meeting Rooms"
+      exclude_calendars:
+        - "Personal"
+        - "Out of Office"
+      calendar_aliases:
+        "Primary Calendar": "Main"
+        "Shared Resources": "Resources"
+        "Meeting Rooms": "Rooms"
+      # Corporate proxy configuration
+      proxy_url: http://proxy.company.com:8080
+      proxy_username: proxy-service-account
+      proxy_password: proxy-service-password
+
+  # Secondary Office 365 tenant (acquired company)
+  - type: caldav
+    name: Office 365 Subsidiary
+    caldav:
+      url: https://outlook.office365.com/owa/calendar/subsidiary-tenant@subsidiary.com/
+      username: subsidiary-service-account@subsidiary.com
+      password: subsidiary-service-password
+      use_server_side_filtering: true
+      discover_calendars: true
+      include_calendars:
+        - "Corporate Events"
+        - "Project Milestones"
+      calendar_aliases:
+        "Corporate Events": "Sub-Events"
+        "Project Milestones": "Sub-Projects"
+      # Same proxy configuration
+      proxy_url: http://proxy.company.com:8080
+      proxy_username: proxy-service-account
+      proxy_password: proxy-service-password
+
+  # On-premises Exchange server
+  - type: caldav
+    name: Exchange On-Premises
+    caldav:
+      url: https://exchange.internal.company.com/owa/calendar/
+      username: DOMAIN\exchange-service-account
+      password: exchange-service-password
+      use_server_side_filtering: false  # Older Exchange versions may not support this
+      discover_calendars: true
+      include_calendars:
+        - "Executive Calendar"
+        - "Board Meetings"
+      calendar_aliases:
+        "Executive Calendar": "Executive"
+        "Board Meetings": "Board"
+      proxy_url: http://proxy.company.com:8080
+      proxy_username: proxy-service-account
+      proxy_password: proxy-service-password
+
+  # Google Workspace (for specific teams)
+  - type: caldav
+    name: Google Workspace
+    caldav:
+      url: https://apidata.googleusercontent.com/caldav/v2/primary/events
+      use_oauth: true
+      client_id: enterprise-google-client-id
+      client_secret: enterprise-google-client-secret
+      discover_calendars: true
+      include_calendars:
+        - "Engineering Team"
+        - "Product Roadmap"
+      calendar_aliases:
+        "Engineering Team": "Engineering"
+        "Product Roadmap": "Product"
+
+  # Salesforce calendar integration
+  - type: ics
+    name: Salesforce Events
+    ics:
+      type: remote
+      path: https://company.salesforce.com/services/data/v58.0/calendar/export
+      auth: header
+      timeout: 60s
+      headers:
+        Authorization: Bearer salesforce-oauth-token
+        X-SFDC-Session: salesforce-session-id
+        Content-Type: text/calendar
+
+  # ServiceNow calendar for maintenance windows
+  - type: ics
+    name: ServiceNow Maintenance
+    ics:
+      type: remote
+      path: https://company.servicenow.com/api/now/table/cmdb_ci_calendar/export
+      auth: basic
+      username: servicenow-integration-user
+      password: servicenow-integration-password
+      timeout: 45s
+
+  # Custom internal API
+  - type: ics
+    name: Internal Events API
+    ics:
+      type: remote
+      path: https://internal-api.company.com/v1/events/calendar.ics
+      auth: header
+      timeout: 30s
+      headers:
+        Authorization: Bearer internal-api-token
+        X-Client-ID: caldav2markdown-enterprise
+        X-Environment: production
+        X-Tenant: primary
+
+  # Compliance and audit calendar
+  - type: ics
+    name: Compliance Calendar
+    ics:
+      type: remote
+      path: https://compliance.company.com/api/calendar/deadlines.ics
+      auth: header
+      timeout: 30s
+      headers:
+        Authorization: Bearer compliance-api-token
+        X-Compliance-Level: "confidential"
+        X-Audit-Trail: enabled
+
+  # Emergency contact schedule
+  - type: ics
+    name: Emergency On-Call
+    ics:
+      type: remote
+      path: https://oncall.company.com/api/schedule/export.ics
+      auth: basic
+      username: oncall-readonly
+      password: oncall-readonly-password
+      timeout: 20s
+
+  # Shared resource booking system
+  - type: ics
+    name: Resource Bookings
+    ics:
+      type: remote
+      path: https://resources.company.com/booking/calendar/all.ics
+      auth: bearer
+      token: resource-booking-token
+      timeout: 30s

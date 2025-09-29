@@ -10,6 +10,7 @@ end_date: 2025-12-31T23:59:59Z
 # Conservative display settings for business use
 use_due_date_emoji: false     # Professional appearance
 use_hashtags: true            # For categorization
+use_calendar_tags: true       # Calendar source identification
 use_frontmatter: true         # For metadata tracking
 ignore_descriptions: false    # Keep full context
 event_checkboxes: false       # Traditional calendar view

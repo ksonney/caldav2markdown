@@ -33,15 +33,16 @@ const (
 
 // Source represents a configuration for an ICS calendar source
 type Source struct {
-	Name        string            `yaml:"name"`
-	Type        SourceType        `yaml:"type"`
-	Path        string            `yaml:"path"`        // File path for local, URL for remote/caldav
-	Auth        AuthMethod        `yaml:"auth"`
-	Username    string            `yaml:"username"`    // For basic auth
-	Password    string            `yaml:"password"`    // For basic auth
-	Token       string            `yaml:"token"`       // For bearer auth
-	Headers     map[string]string `yaml:"headers"`     // For custom headers
-	Timeout     time.Duration     `yaml:"timeout"`     // HTTP timeout for remote sources
+	Name            string            `yaml:"name"`
+	Type            SourceType        `yaml:"type"`
+	Path            string            `yaml:"path"`        // File path for local, URL for remote/caldav
+	Auth            AuthMethod        `yaml:"auth"`
+	Username        string            `yaml:"username"`    // For basic auth
+	Password        string            `yaml:"password"`    // For basic auth
+	Token           string            `yaml:"token"`       // For bearer auth
+	Headers         map[string]string `yaml:"headers"`     // For custom headers
+	Timeout         time.Duration     `yaml:"timeout"`     // HTTP timeout for remote sources
+	CalendarAliases map[string]string `yaml:"calendar_aliases"` // Calendar name aliases
 }
 
 // ICSReader is an interface for reading ICS content from different sources

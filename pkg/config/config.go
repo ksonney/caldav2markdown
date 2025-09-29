@@ -165,7 +165,10 @@ func (c *Config) parseMultiSourceConfig(key, value string) bool {
 			return success
 		case "ics":
 			if source.ICSSource == nil {
-				source.ICSSource = &ics.Source{Headers: make(map[string]string)}
+				source.ICSSource = &ics.Source{
+					Headers:         make(map[string]string),
+					CalendarAliases: make(map[string]string),
+				}
 			}
 			success := c.parseICSSourceField(source.ICSSource, field, value)
 			if !success {
@@ -282,6 +285,23 @@ func (c *Config) parseICSSourceField(source *ics.Source, field, value string) bo
 			source.Timeout = timeout
 		} else {
 			fmt.Printf("Warning: invalid timeout format '%s', using default\n", value)
+		}
+	case "CALENDAR_ALIASES":
+		if value != "" {
+			if source.CalendarAliases == nil {
+				source.CalendarAliases = make(map[string]string)
+			}
+			pairs := strings.Split(value, ",")
+			for _, pair := range pairs {
+				parts := strings.Split(pair, ":")
+				if len(parts) == 2 {
+					key := strings.TrimSpace(parts[0])
+					alias := strings.TrimSpace(parts[1])
+					if key != "" && alias != "" {
+						source.CalendarAliases[key] = alias
+					}
+				}
+			}
 		}
 	default:
 		// Handle headers (format: HEADER_<name>)
@@ -510,6 +530,9 @@ func LoadFromYAMLFile(filename string) (*Config, error) {
 		}
 		if config.Sources[i].ICSSource != nil && config.Sources[i].ICSSource.Headers == nil {
 			config.Sources[i].ICSSource.Headers = make(map[string]string)
+		}
+		if config.Sources[i].ICSSource != nil && config.Sources[i].ICSSource.CalendarAliases == nil {
+			config.Sources[i].ICSSource.CalendarAliases = make(map[string]string)
 		}
 	}
 
@@ -1084,13 +1107,14 @@ func (c *Config) ToICSSource() (ics.Source, error) {
 	}
 
 	source := ics.Source{
-		Name:     "default",
-		Auth:     c.ICSAuth,
-		Username: c.ICSUsername,
-		Password: c.ICSPassword,
-		Token:    c.ICSToken,
-		Headers:  c.ICSHeaders,
-		Timeout:  c.ICSTimeout,
+		Name:            "default",
+		Auth:            c.ICSAuth,
+		Username:        c.ICSUsername,
+		Password:        c.ICSPassword,
+		Token:           c.ICSToken,
+		Headers:         c.ICSHeaders,
+		Timeout:         c.ICSTimeout,
+		CalendarAliases: c.CalendarAliases,
 	}
 
 	if c.ICSPath != "" {

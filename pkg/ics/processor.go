@@ -16,146 +16,142 @@ type EventData struct {
 	Todos             []*ics.VTodo
 	DuplicatesFound   int
 	ProcessingReport  string
+	SourceName        string            // Name of the ICS source
+	CalendarAliases   map[string]string // Calendar aliases for this source
 }
 
 // ProgressCallback is used for progress reporting during processing
 type ProgressCallback func(message string, current, total int)
 
-// Processor handles ICS sources and extracts calendar data
+// Processor handles a single ICS source and extracts calendar data
 type Processor struct {
-	sources   []Source
+	source    Source
 	startDate time.Time
 	endDate   time.Time
 }
 
-// NewProcessor creates a new ICS processor
-func NewProcessor(sources []Source, startDate, endDate time.Time) *Processor {
+// NewProcessor creates a new ICS processor for a single source
+func NewProcessor(source Source, startDate, endDate time.Time) *Processor {
 	return &Processor{
-		sources:   sources,
+		source:    source,
 		startDate: startDate,
 		endDate:   endDate,
 	}
 }
 
-// ProcessSources reads from all ICS sources and returns combined event data
-func (p *Processor) ProcessSources(ctx context.Context, progressCallback ProgressCallback) (*EventData, error) {
-	reader, err := NewMultiSourceReader(p.sources)
+// ProcessSource reads from the ICS source and returns event data
+func (p *Processor) ProcessSource(ctx context.Context, progressCallback ProgressCallback) (*EventData, error) {
+	reader, err := NewICSReader(p.source)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create multi-source reader: %w", err)
-	}
-
-	// Read all calendars
-	calendars, err := reader.ReadAllICS(ctx, SourceProgressCallback(func(message string, current, total int) {
-		if progressCallback != nil {
-			progressCallback(fmt.Sprintf("Reading: %s", message), current, total)
-		}
-	}))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read ICS sources: %w", err)
+		return nil, fmt.Errorf("failed to create ICS reader: %w", err)
 	}
 
 	if progressCallback != nil {
-		progressCallback("Processing calendar data...", 0, 1)
+		progressCallback(fmt.Sprintf("Reading from %s", p.source.Name), 0, 1)
 	}
 
-	// Process all calendars and extract events/todos
-	return p.processCalendars(calendars, progressCallback)
+	// Read the calendar
+	calendar, err := reader.ReadICS(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ICS source: %w", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback("Processing calendar data...", 1, 1)
+	}
+
+	// Process calendar and extract events/todos
+	return p.processCalendar(calendar, progressCallback)
 }
 
-// processCalendars extracts and deduplicates events and todos from multiple calendars
-func (p *Processor) processCalendars(calendars []*ics.Calendar, progressCallback ProgressCallback) (*EventData, error) {
+// processCalendar extracts events and todos from a single calendar
+func (p *Processor) processCalendar(calendar *ics.Calendar, progressCallback ProgressCallback) (*EventData, error) {
 	var allEvents []*ics.VEvent
 	var allTodos []*ics.VTodo
 	seenUIDs := make(map[string]bool)
 	duplicatesFound := 0
 
-	totalItems := 0
-	for _, calendar := range calendars {
-		totalItems += len(calendar.Events()) + len(calendar.Todos())
-	}
-
+	totalItems := len(calendar.Events()) + len(calendar.Todos())
 	processedItems := 0
 
-	for calIndex, calendar := range calendars {
-		if progressCallback != nil {
-			progressCallback(fmt.Sprintf("Processing calendar %d/%d", calIndex+1, len(calendars)), calIndex, len(calendars))
+	if progressCallback != nil {
+		progressCallback("Processing calendar events and tasks", 0, totalItems)
+	}
+
+	// Process events
+	for _, event := range calendar.Events() {
+		processedItems++
+		if processedItems%10 == 0 && progressCallback != nil {
+			progressCallback(fmt.Sprintf("Processed %d/%d items", processedItems, totalItems), processedItems, totalItems)
 		}
 
-		// Process events
-		for _, event := range calendar.Events() {
-			processedItems++
-			if processedItems%10 == 0 && progressCallback != nil {
-				progressCallback(fmt.Sprintf("Processed %d/%d items", processedItems, totalItems), processedItems, totalItems)
-			}
+		uid := p.getEventUID(event)
+		if uid == "" {
+			continue // Skip events without UID
+		}
 
-			uid := p.getEventUID(event)
-			if uid == "" {
-				continue // Skip events without UID
-			}
+		// Check for duplicates
+		if seenUIDs[uid] {
+			duplicatesFound++
+			continue
+		}
 
-			// Check for duplicates
-			if seenUIDs[uid] {
-				duplicatesFound++
+		// Always expand recurring events first, then filter the instances
+		expandedEvents := p.expandRecurringEvent(event)
+		for _, expandedEvent := range expandedEvents {
+			// Filter expanded instances based on their individual dates
+			if !p.isEventInDateRange(expandedEvent) {
 				continue
 			}
 
-			// Always expand recurring events first, then filter the instances
-			expandedEvents := p.expandRecurringEvent(event)
-			for _, expandedEvent := range expandedEvents {
-				// Filter expanded instances based on their individual dates
-				if !p.isEventInDateRange(expandedEvent) {
-					continue
-				}
-
-				expandedUID := p.getEventUID(expandedEvent)
-				if !seenUIDs[expandedUID] {
-					seenUIDs[expandedUID] = true
-					allEvents = append(allEvents, expandedEvent)
-				} else {
-					duplicatesFound++
-				}
+			expandedUID := p.getEventUID(expandedEvent)
+			if !seenUIDs[expandedUID] {
+				seenUIDs[expandedUID] = true
+				allEvents = append(allEvents, expandedEvent)
+			} else {
+				duplicatesFound++
 			}
-
-			seenUIDs[uid] = true
 		}
 
-		// Process todos
-		for _, todo := range calendar.Todos() {
-			processedItems++
-			if processedItems%10 == 0 && progressCallback != nil {
-				progressCallback(fmt.Sprintf("Processed %d/%d items", processedItems, totalItems), processedItems, totalItems)
-			}
+		seenUIDs[uid] = true
+	}
 
-			uid := p.getTodoUID(todo)
-			if uid == "" {
-				continue // Skip todos without UID
-			}
+	// Process todos
+	for _, todo := range calendar.Todos() {
+		processedItems++
+		if processedItems%10 == 0 && progressCallback != nil {
+			progressCallback(fmt.Sprintf("Processed %d/%d items", processedItems, totalItems), processedItems, totalItems)
+		}
 
-			// Check for duplicates
-			if seenUIDs[uid] {
-				duplicatesFound++
+		uid := p.getTodoUID(todo)
+		if uid == "" {
+			continue // Skip todos without UID
+		}
+
+		// Check for duplicates
+		if seenUIDs[uid] {
+			duplicatesFound++
+			continue
+		}
+
+		// Always expand recurring todos first, then filter the instances
+		expandedTodos := p.expandRecurringTodo(todo)
+		for _, expandedTodo := range expandedTodos {
+			// Filter expanded instances based on their individual dates
+			if !p.isTodoInDateRange(expandedTodo) {
 				continue
 			}
 
-			// Always expand recurring todos first, then filter the instances
-			expandedTodos := p.expandRecurringTodo(todo)
-			for _, expandedTodo := range expandedTodos {
-				// Filter expanded instances based on their individual dates
-				if !p.isTodoInDateRange(expandedTodo) {
-					continue
-				}
-
-				expandedUID := p.getTodoUID(expandedTodo)
-				if !seenUIDs[expandedUID] {
-					seenUIDs[expandedUID] = true
-					allTodos = append(allTodos, expandedTodo)
-				} else {
-					duplicatesFound++
-				}
+			expandedUID := p.getTodoUID(expandedTodo)
+			if !seenUIDs[expandedUID] {
+				seenUIDs[expandedUID] = true
+				allTodos = append(allTodos, expandedTodo)
+			} else {
+				duplicatesFound++
 			}
-
-			seenUIDs[uid] = true
 		}
+
+		seenUIDs[uid] = true
 	}
 
 	if progressCallback != nil {
@@ -163,20 +159,19 @@ func (p *Processor) processCalendars(calendars []*ics.Calendar, progressCallback
 	}
 
 	// Generate processing report
-	sourceInfos := []string{}
-	reader, _ := NewMultiSourceReader(p.sources)
-	for _, info := range reader.GetSourceInfos() {
-		sourceInfos = append(sourceInfos, info)
-	}
+	reader, _ := NewICSReader(p.source)
+	sourceInfo := reader.GetSourceInfo()
 
-	report := fmt.Sprintf("Processed %d ICS sources:\n%s\nFound %d events, %d tasks (%d duplicates removed)",
-		len(p.sources), strings.Join(sourceInfos, "\n"), len(allEvents), len(allTodos), duplicatesFound)
+	report := fmt.Sprintf("Processed ICS source:\n%s\nFound %d events, %d tasks (%d duplicates removed)",
+		sourceInfo, len(allEvents), len(allTodos), duplicatesFound)
 
 	return &EventData{
 		Events:           allEvents,
 		Todos:            allTodos,
 		DuplicatesFound:  duplicatesFound,
 		ProcessingReport: report,
+		SourceName:       p.source.Name,
+		CalendarAliases:  p.source.CalendarAliases,
 	}, nil
 }
 

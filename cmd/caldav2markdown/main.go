@@ -15,6 +15,20 @@ import (
 	"caldav2markdown/pkg/markdown"
 )
 
+// SourcedEvent tracks an event with its source information
+type SourcedEvent struct {
+	Event           *ics.VEvent
+	SourceName      string
+	CalendarAliases map[string]string
+}
+
+// SourcedTodo tracks a todo with its source information
+type SourcedTodo struct {
+	Todo            *ics.VTodo
+	SourceName      string
+	CalendarAliases map[string]string
+}
+
 func main() {
 	var (
 		// Legacy CalDAV flags
@@ -493,13 +507,13 @@ func processICSMode(cfg *config.Config, progressCallback func(string, int, int),
 	}
 
 	// Create processor with single source
-	processor := icsource.NewProcessor([]icsource.Source{source}, cfg.StartDate, cfg.EndDate)
+	processor := icsource.NewProcessor(source, cfg.StartDate, cfg.EndDate)
 
 	fmt.Printf("Processing ICS source: %s\n", source.Name)
 
 	// Process the source
 	ctx := context.Background()
-	result, err := processor.ProcessSources(ctx, progressCallback)
+	result, err := processor.ProcessSource(ctx, progressCallback)
 	if err != nil {
 		return fmt.Errorf("failed to process ICS sources: %w", err)
 	}
@@ -678,11 +692,11 @@ func processCalDAVSource(source *config.CalDAVSource, cfg *config.Config, progre
 // processICSSource processes a single ICS source
 func processICSSource(source *icsource.Source, cfg *config.Config, progressCallback func(string, int, int), events *[]*ics.VEvent, todos *[]*ics.VTodo, duplicatesFound *int) error {
 	// Create processor with single source
-	processor := icsource.NewProcessor([]icsource.Source{*source}, cfg.StartDate, cfg.EndDate)
+	processor := icsource.NewProcessor(*source, cfg.StartDate, cfg.EndDate)
 
 	// Process the source
 	ctx := context.Background()
-	result, err := processor.ProcessSources(ctx, progressCallback)
+	result, err := processor.ProcessSource(ctx, progressCallback)
 	if err != nil {
 		return fmt.Errorf("failed to process ICS source: %w", err)
 	}

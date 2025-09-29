@@ -116,6 +116,7 @@ GOOGLE_CLIENT_SECRET=your_client_secret
 OUTPUT_DIR=./events
 USE_FRONTMATTER=true
 USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
 ```
 
 #### Multi-Calendar Configuration
@@ -162,6 +163,7 @@ CALENDAR_ALIASES=My Calendar:Personal,Team Calendar:Work
 OUTPUT_DIR=./events
 USE_FRONTMATTER=true
 USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
 ```
 
 #### Complete Configuration Options
@@ -181,6 +183,7 @@ GOOGLE_CLIENT_SECRET=your_client_secret
 OUTPUT_DIR=./events
 USE_DUE_DATE_EMOJI=true
 USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
 USE_FRONTMATTER=true
 IGNORE_DESCRIPTIONS=false
 EVENT_CHECKBOXES=false
@@ -348,6 +351,7 @@ bin/caldav2markdown -test
 - `-config`: Configuration file path (default: .env)
 - `-emoji`: Use 📅 emoji for due dates in tasks
 - `-hashtags`: Add #event and #task hashtags
+- `-calendar-tags`: Add calendar name hashtags (e.g., #work-calendar, #personal)
 - `-frontmatter`: Add YAML frontmatter to markdown files
 - `-ignore-descriptions`: Ignore event and task descriptions in output
 - `-event-checkboxes`: Add checkboxes to events for task-like formatting
@@ -516,10 +520,16 @@ The application intelligently merges content when files already exist:
 
 ### Formatting Options
 
-#### With Emoji and Hashtags (enabled)
+#### With Emoji, Hashtags, and Calendar Tags (enabled)
 ```markdown
-- [ ] **Review PR** - 📅 2024-01-20 #task
-- **Team Meeting** (09:00 - 10:00) @ Room A #event
+- [ ] **Review PR** - 📅 2024-01-20 [Work] #task #work
+- **Team Meeting** (09:00 - 10:00) @ Room A [Personal] #event #personal
+```
+
+#### With Hashtags Only (calendar tags disabled)
+```markdown
+- [ ] **Review PR** - 📅 2024-01-20 [Work] #task
+- **Team Meeting** (09:00 - 10:00) @ Room A [Personal] #event
 ```
 
 #### Standard Format (disabled)
@@ -858,8 +868,11 @@ bin/caldav2markdown -frontmatter -hashtags -output _posts/
 ### Obsidian Integration
 
 ```bash
-# Generate for Obsidian vault
-bin/caldav2markdown -emoji -hashtags -output /path/to/obsidian/vault/Calendar/
+# Generate for Obsidian vault with full task support
+bin/caldav2markdown -obsidian-tasks -output /path/to/obsidian/vault/Calendar/
+
+# Manual setup with specific options
+bin/caldav2markdown -emoji -hashtags -calendar-tags -event-checkboxes -frontmatter -output /path/to/obsidian/vault/Calendar/
 
 # Link events: Use [[2024-01-15]] to reference daily files
 ```

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -374,23 +375,7 @@ func (em EventMarkdown) ToListItemWithOptionsAndCalendarTags(useHashtags, ignore
 	}
 
 	if useCalendarTags && em.Calendar != "" {
-		// Generate a sanitized hashtag from calendar name
-		calendarTag := strings.ToLower(em.Calendar)
-		calendarTag = strings.ReplaceAll(calendarTag, " ", "-")
-		calendarTag = strings.ReplaceAll(calendarTag, "_", "-")
-		// Remove non-alphanumeric characters except hyphens
-		var cleanTag strings.Builder
-		for _, r := range calendarTag {
-			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-				cleanTag.WriteRune(r)
-			}
-		}
-		calendarTag = cleanTag.String()
-		// Remove leading/trailing hyphens and collapse multiple hyphens
-		calendarTag = strings.Trim(calendarTag, "-")
-		for strings.Contains(calendarTag, "--") {
-			calendarTag = strings.ReplaceAll(calendarTag, "--", "-")
-		}
+		calendarTag := sanitizeForHashtag(em.Calendar)
 		if calendarTag != "" {
 			sb.WriteString(fmt.Sprintf(" #%s", calendarTag))
 		}
@@ -569,23 +554,7 @@ func (tm TodoMarkdown) ToMarkdownWithOptionsAndCalendarTags(useDueDateEmoji, use
 	}
 
 	if useCalendarTags && tm.Calendar != "" {
-		// Generate a sanitized hashtag from calendar name
-		calendarTag := strings.ToLower(tm.Calendar)
-		calendarTag = strings.ReplaceAll(calendarTag, " ", "-")
-		calendarTag = strings.ReplaceAll(calendarTag, "_", "-")
-		// Remove non-alphanumeric characters except hyphens
-		var cleanTag strings.Builder
-		for _, r := range calendarTag {
-			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-				cleanTag.WriteRune(r)
-			}
-		}
-		calendarTag = cleanTag.String()
-		// Remove leading/trailing hyphens and collapse multiple hyphens
-		calendarTag = strings.Trim(calendarTag, "-")
-		for strings.Contains(calendarTag, "--") {
-			calendarTag = strings.ReplaceAll(calendarTag, "--", "-")
-		}
+		calendarTag := sanitizeForHashtag(tm.Calendar)
 		if calendarTag != "" {
 			sb.WriteString(fmt.Sprintf(" #%s", calendarTag))
 		}
@@ -634,7 +603,7 @@ func GenerateTodoFile(outputDir string, todos []TodoMarkdown, useDueDateEmoji, u
 	}
 
 	// Generate merged content
-	content := generateMergedTodoContent(existingContent, newTasks, todos, useFrontmatter)
+	content := generateMergedTodoContent(existingContent, newTasks, todos, useFrontmatter, useHashtags, useCalendarTags)
 
 	// Write to file
 	if err := writeToFile(todoPath, content); err != nil {
@@ -895,6 +864,212 @@ func deduplicate(items []string) []string {
 	return result
 }
 
+// smartDeduplicate compares items based on core content (without hashtags)
+// and keeps the version with the most complete hashtag information
+func smartDeduplicate(items []string) []string {
+	// Map core content to the best version (most hashtags)
+	bestVersions := make(map[string]string)
+
+	for _, item := range items {
+		normalized := strings.TrimSpace(item)
+		if normalized == "" {
+			continue
+		}
+
+		// Extract core content without hashtags
+		coreContent := extractCoreContent(normalized)
+
+		// If we haven't seen this core content, or this version has more hashtags, keep it
+		if existing, exists := bestVersions[coreContent]; !exists || hasMoreCompleteHashtags(normalized, existing) {
+			bestVersions[coreContent] = normalized
+		}
+	}
+
+	// Convert map back to slice, preserving original order as much as possible
+	result := []string{}
+	seen := make(map[string]bool)
+
+	for _, item := range items {
+		normalized := strings.TrimSpace(item)
+		if normalized == "" {
+			continue
+		}
+
+		coreContent := extractCoreContent(normalized)
+		bestVersion := bestVersions[coreContent]
+
+		if !seen[bestVersion] {
+			seen[bestVersion] = true
+			result = append(result, bestVersion)
+		}
+	}
+
+	return result
+}
+
+// extractCoreContent removes hashtags from the end of a markdown item to get core content
+func extractCoreContent(item string) string {
+	// Handle multi-line items by processing each line and removing hashtags
+	lines := strings.Split(item, "\n")
+	var cleanLines []string
+
+	for _, line := range lines {
+		// Pattern to match hashtags at the end: one or more #word patterns, possibly with trailing spaces
+		hashtagPattern := regexp.MustCompile(`(\s+#[a-zA-Z0-9-]+)*\s*$`)
+		cleanLine := strings.TrimSpace(hashtagPattern.ReplaceAllString(line, ""))
+		if cleanLine != "" {
+			// Normalize indentation - remove leading spaces to focus on content
+			cleanLines = append(cleanLines, strings.TrimSpace(cleanLine))
+		}
+	}
+
+	// Join lines back but normalize spacing for comparison
+	result := strings.Join(cleanLines, "\n")
+	// Also normalize multiple whitespace to single spaces within lines
+	spacePattern := regexp.MustCompile(`\s+`)
+	result = spacePattern.ReplaceAllString(result, " ")
+	return strings.TrimSpace(result)
+}
+
+// hasMoreCompleteHashtags determines if the first item has more complete hashtag information than the second
+func hasMoreCompleteHashtags(item1, item2 string) bool {
+	hashtags1 := extractHashtags(item1)
+	hashtags2 := extractHashtags(item2)
+
+	// Prefer the item with more hashtags, or if equal, the one that's not empty
+	if len(hashtags1) != len(hashtags2) {
+		return len(hashtags1) > len(hashtags2)
+	}
+
+	// If same number of hashtags, prefer the one that comes later (likely newer)
+	return len(hashtags1) > 0
+}
+
+// extractHashtags returns all hashtags found in an item
+func extractHashtags(item string) []string {
+	hashtagPattern := regexp.MustCompile(`#[a-zA-Z0-9-]+`)
+	return hashtagPattern.FindAllString(item, -1)
+}
+
+// updateItemsWithNewHashtags updates existing markdown items to add new hashtags if enabled
+func updateItemsWithNewHashtags(items []string, useHashtags, useCalendarTags bool, isEvent bool) []string {
+	if !useHashtags && !useCalendarTags {
+		return items // No hashtags to add
+	}
+
+	var updatedItems []string
+	for _, item := range items {
+		updatedItems = append(updatedItems, updateSingleItemWithHashtags(item, useHashtags, useCalendarTags, isEvent))
+	}
+	return updatedItems
+}
+
+// updateSingleItemWithHashtags updates a single markdown item to add missing hashtags
+func updateSingleItemWithHashtags(item string, useHashtags, useCalendarTags bool, isEvent bool) string {
+	if !useHashtags && !useCalendarTags {
+		return item
+	}
+
+	// Pattern to match existing hashtags at the end of the line
+	hashtagPattern := regexp.MustCompile(`(\s+#[a-zA-Z0-9-]+)*\s*$`)
+
+	// Extract existing hashtags
+	matches := hashtagPattern.FindAllString(item, -1)
+	var existingHashtags []string
+	for _, match := range matches {
+		tags := strings.Fields(match)
+		for _, tag := range tags {
+			if strings.HasPrefix(tag, "#") {
+				existingHashtags = append(existingHashtags, tag)
+			}
+		}
+	}
+
+	// Check if we need to add standard hashtags
+	var newHashtags []string
+	if useHashtags {
+		expectedTag := "#event"
+		if !isEvent {
+			expectedTag = "#task"
+		}
+
+		hasStandardTag := false
+		for _, tag := range existingHashtags {
+			if tag == expectedTag {
+				hasStandardTag = true
+				break
+			}
+		}
+		if !hasStandardTag {
+			newHashtags = append(newHashtags, expectedTag)
+		}
+	}
+
+	// Extract calendar name from item (between square brackets)
+	var calendarTag string
+	if useCalendarTags {
+		calendarPattern := regexp.MustCompile(`\[([^\]]+)\]`)
+		calendarMatches := calendarPattern.FindStringSubmatch(item)
+		if len(calendarMatches) > 1 {
+			calendarName := calendarMatches[1]
+			calendarTag = "#" + sanitizeForHashtag(calendarName)
+
+			// Check if calendar tag already exists
+			hasCalendarTag := false
+			for _, tag := range existingHashtags {
+				if tag == calendarTag {
+					hasCalendarTag = true
+					break
+				}
+			}
+			if !hasCalendarTag {
+				newHashtags = append(newHashtags, calendarTag)
+			}
+		}
+	}
+
+	// If no new hashtags to add, return original item
+	if len(newHashtags) == 0 {
+		return item
+	}
+
+	// Remove existing hashtags from the end and add all hashtags (existing + new)
+	baseItem := hashtagPattern.ReplaceAllString(item, "")
+	baseItem = strings.TrimSpace(baseItem)
+
+	// Combine existing and new hashtags
+	allHashtags := append(existingHashtags, newHashtags...)
+	if len(allHashtags) > 0 {
+		return baseItem + " " + strings.Join(allHashtags, " ")
+	}
+
+	return baseItem
+}
+
+// sanitizeForHashtag converts a calendar name to a clean hashtag format
+func sanitizeForHashtag(calendarName string) string {
+	// Generate a sanitized hashtag from calendar name
+	calendarTag := strings.ToLower(calendarName)
+	calendarTag = strings.ReplaceAll(calendarTag, " ", "-")
+	calendarTag = strings.ReplaceAll(calendarTag, "_", "-")
+	// Remove non-alphanumeric characters except hyphens
+	var cleanTag strings.Builder
+	for _, r := range calendarTag {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			cleanTag.WriteRune(r)
+		}
+	}
+	// Clean up multiple hyphens and trim
+	result := cleanTag.String()
+	// Replace multiple consecutive hyphens with single hyphen
+	for strings.Contains(result, "--") {
+		result = strings.ReplaceAll(result, "--", "-")
+	}
+	// Trim leading and trailing hyphens
+	result = strings.Trim(result, "-")
+	return result
+}
+
 // ExistingTodoContent represents parsed content from an existing todo.md file
 type ExistingTodoContent struct {
 	Title        string
@@ -1028,7 +1203,7 @@ func savePreviousTodoSection(content *ExistingTodoContent, section string, items
 }
 
 // generateMergedTodoContent creates the final todo.md content by merging existing and new items
-func generateMergedTodoContent(existingContent *ExistingTodoContent, newTasks []string, tasks []TodoMarkdown, useFrontmatter bool) string {
+func generateMergedTodoContent(existingContent *ExistingTodoContent, newTasks []string, tasks []TodoMarkdown, useFrontmatter, useHashtags, useCalendarTags bool) string {
 	var sb strings.Builder
 
 	// Handle frontmatter - merge existing with new if requested
@@ -1146,7 +1321,12 @@ func generateMergedTodoContent(existingContent *ExistingTodoContent, newTasks []
 		taskItems = append(taskItems, existingContent.Tasks...)
 	}
 	taskItems = append(taskItems, newTasks...)
-	taskItems = deduplicate(taskItems)
+	taskItems = smartDeduplicate(taskItems)
+
+	// Update existing tasks with new hashtags if needed
+	if existingContent != nil {
+		taskItems = updateItemsWithNewHashtags(taskItems, useHashtags, useCalendarTags, false)
+	}
 
 	// Add tasks section
 	if len(taskItems) > 0 {
@@ -1219,11 +1399,11 @@ func generateFrontmatter(date string, allDayCount, scheduledCount, taskCount int
 
 // generateMergedContent creates the final markdown content by merging existing and new items
 func generateMergedContent(date string, existingContent *ExistingDayContent, newAllDay, newScheduled, newTasks []string) string {
-	return generateMergedContentWithFrontmatter(date, existingContent, newAllDay, newScheduled, newTasks, nil, nil, false)
+	return generateMergedContentWithFrontmatter(date, existingContent, newAllDay, newScheduled, newTasks, nil, nil, false, false, false)
 }
 
 // generateMergedContentWithFrontmatter creates the final markdown content with optional frontmatter
-func generateMergedContentWithFrontmatter(date string, existingContent *ExistingDayContent, newAllDay, newScheduled, newTasks []string, events []EventMarkdown, tasks []TodoMarkdown, useFrontmatter bool) string {
+func generateMergedContentWithFrontmatter(date string, existingContent *ExistingDayContent, newAllDay, newScheduled, newTasks []string, events []EventMarkdown, tasks []TodoMarkdown, useFrontmatter, useHashtags, useCalendarTags bool) string {
 	var sb strings.Builder
 
 	// Handle frontmatter - merge existing with new if requested
@@ -1341,7 +1521,7 @@ func generateMergedContentWithFrontmatter(date string, existingContent *Existing
 		allDayItems = append(allDayItems, existingContent.AllDayEvents...)
 	}
 	allDayItems = append(allDayItems, newAllDay...)
-	allDayItems = deduplicate(allDayItems)
+	allDayItems = smartDeduplicate(allDayItems)
 
 	// Merge and deduplicate scheduled events
 	var scheduledItems []string
@@ -1349,7 +1529,7 @@ func generateMergedContentWithFrontmatter(date string, existingContent *Existing
 		scheduledItems = append(scheduledItems, existingContent.ScheduledEvents...)
 	}
 	scheduledItems = append(scheduledItems, newScheduled...)
-	scheduledItems = deduplicate(scheduledItems)
+	scheduledItems = smartDeduplicate(scheduledItems)
 
 	// Merge and deduplicate tasks
 	var taskItems []string
@@ -1357,7 +1537,14 @@ func generateMergedContentWithFrontmatter(date string, existingContent *Existing
 		taskItems = append(taskItems, existingContent.Tasks...)
 	}
 	taskItems = append(taskItems, newTasks...)
-	taskItems = deduplicate(taskItems)
+	taskItems = smartDeduplicate(taskItems)
+
+	// Update existing items with new hashtags if needed
+	if existingContent != nil {
+		allDayItems = updateItemsWithNewHashtags(allDayItems, useHashtags, useCalendarTags, true)
+		scheduledItems = updateItemsWithNewHashtags(scheduledItems, useHashtags, useCalendarTags, true)
+		taskItems = updateItemsWithNewHashtags(taskItems, useHashtags, useCalendarTags, false)
+	}
 
 	// Add other content from existing file (if any)
 	if existingContent != nil && len(existingContent.OtherContent) > 0 {
@@ -1633,7 +1820,7 @@ func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, 
 		}
 
 		// Generate merged content
-		mergedContent := generateMergedContentWithFrontmatter(date, existingContent, newAllDayEvents, newScheduledEvents, newTasks, dayEvents, dayTasks, useFrontmatter)
+		mergedContent := generateMergedContentWithFrontmatter(date, existingContent, newAllDayEvents, newScheduledEvents, newTasks, dayEvents, dayTasks, useFrontmatter, useHashtags, useCalendarTags)
 
 		// Write merged content to file
 		file, err := os.Create(filename)

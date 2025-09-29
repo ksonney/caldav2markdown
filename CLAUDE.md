@@ -130,11 +130,12 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Flexible Formatting Options**:
   - Optional 📅 emoji for due dates (controlled by `USE_DUE_DATE_EMOJI` config)
   - Optional #event and #task hashtags (controlled by `USE_HASHTAGS` config)
+  - **Calendar Alias Hashtags**: Automatic hashtags from calendar names/aliases (controlled by `USE_CALENDAR_TAGS` config)
   - YAML frontmatter with comprehensive metadata (controlled by `USE_FRONTMATTER` config)
   - Optional description exclusion for cleaner output (controlled by `IGNORE_DESCRIPTIONS` config)
   - Optional event checkboxes for task-like formatting (controlled by `EVENT_CHECKBOXES` config)
   - **Calendar Name Display**: Automatic calendar name extraction with customizable aliases (controlled by `CALENDAR_ALIASES` config)
-  - **Obsidian Tasks Preset**: One-click configuration for Obsidian compatibility (controlled by `OBSIDIAN_TASKS` config)
+  - **Obsidian Tasks Preset**: One-click configuration for Obsidian compatibility - enables event checkboxes, ignores descriptions, frontmatter, emojis, hashtags, and calendar tags (controlled by `OBSIDIAN_TASKS` config)
   - **Past Event Completion**: Automatic [x] marking for past events when EVENT_CHECKBOXES is enabled
 - **Smart Todo Organization**:
   - Tasks with due dates are organized by date and included in daily files
@@ -292,6 +293,19 @@ Other iCalendar component types (VJOURNAL, VFREEBUSY, VTIMEZONE, etc.) are ignor
 - **Integration**: Automatic [x] marking in `ToListItemWithOptions()` when EVENT_CHECKBOXES enabled
 - **Time Awareness**: Considers actual event duration and time zones
 
+#### Calendar Alias Hashtag Generation
+- **Functions**:
+  - `EventMarkdown.ToListItemWithOptionsAndCalendarTags()` - Generates calendar hashtags for events
+  - `TodoMarkdown.ToMarkdownWithOptionsAndCalendarTags()` - Generates calendar hashtags for todos
+- **Configuration**: Controlled by `USE_CALENDAR_TAGS` config option and `--calendar-tags` CLI flag
+- **Sanitization Logic**:
+  - Converts calendar names/aliases to lowercase
+  - Replaces spaces and underscores with hyphens
+  - Removes non-alphanumeric characters except hyphens
+  - Collapses multiple hyphens and trims leading/trailing hyphens
+- **Integration**: Works with calendar aliases to create clean, readable hashtags
+- **Example**: Calendar "Work Calendar" with alias "Work" → `#work` hashtag
+
 ### Configuration Examples
 
 #### Configuration Formats
@@ -313,13 +327,15 @@ The application auto-detects the format based on file extension or content struc
 
 ### Environment File Examples
 
-#### Google Calendar with OAuth and Calendar Aliases
+#### Google Calendar with OAuth, Calendar Aliases, and Hashtags
 ```bash
 USE_OAUTH=true
 CALDAV_URL=https://apidata.googleusercontent.com/caldav/v2/primary/events
 GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your_client_secret
 USE_FRONTMATTER=true
+USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
 DISCOVER_CALENDARS=true
 CALENDAR_ALIASES=Google Calendar:GCal,Personal Calendar:Personal,Work Calendar:Work
 ```
@@ -347,7 +363,7 @@ USE_FRONTMATTER=true
 DISCOVER_CALENDARS=true
 ```
 
-#### Multi-calendar with Server-side Filtering
+#### Multi-calendar with Server-side Filtering and Calendar Hashtags
 ```bash
 DISCOVER_CALENDARS=true
 USE_SERVER_SIDE_FILTERING=true
@@ -355,6 +371,7 @@ INCLUDE_CALENDARS=Work,Personal,Family
 EXCLUDE_CALENDARS=Archive,Test,Spam
 CALENDAR_ALIASES=Work Calendar:Work,Personal Calendar:Personal,Family Events:Family
 USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
 USE_FRONTMATTER=true
 EVENT_CHECKBOXES=true
 ```

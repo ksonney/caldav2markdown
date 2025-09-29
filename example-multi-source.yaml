@@ -10,6 +10,7 @@ end_date: 2025-12-31T23:59:59Z
 # Display Options
 use_due_date_emoji: true      # Add 📅 emoji to due dates
 use_hashtags: true            # Add #event and #task hashtags
+use_calendar_tags: true       # Add calendar-specific hashtags for source identification
 use_frontmatter: true         # Add YAML frontmatter to markdown files
 ignore_descriptions: false    # Include event/task descriptions
 event_checkboxes: true        # Add checkboxes to events for task-like formatting

@@ -14,6 +14,38 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// GetXDGConfigDir returns the XDG config directory for caldav2markdown
+// Following XDG Base Directory Specification
+func GetXDGConfigDir() (string, error) {
+	// Check for XDG_CONFIG_HOME first
+	if xdgConfigHome := os.Getenv("XDG_CONFIG_HOME"); xdgConfigHome != "" {
+		return filepath.Join(xdgConfigHome, "caldav2markdown"), nil
+	}
+
+	// Fall back to ~/.config/caldav2markdown
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, ".config", "caldav2markdown"), nil
+}
+
+// GetDefaultConfigPath returns the default configuration file path using XDG directories
+func GetDefaultConfigPath() (string, error) {
+	configDir, err := GetXDGConfigDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Ensure the directory exists
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	return filepath.Join(configDir, "config.yaml"), nil
+}
+
 // SourceMode represents the type of calendar source
 type SourceMode string
 

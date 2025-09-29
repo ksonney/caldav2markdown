@@ -229,11 +229,11 @@ bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "
 ### Basic Usage
 
 ```bash
-# Using config file (default: .env)
+# Using config file (default: ~/.config/caldav2markdown/config.yaml)
 bin/caldav2markdown
 
 # Using custom config file
-bin/caldav2markdown -config myconfig.env
+bin/caldav2markdown -config myconfig.yaml
 
 # Using command line flags with emoji and hashtags
 bin/caldav2markdown -url "https://example.com/cal/" -username "user" -password "pass" -emoji -hashtags
@@ -348,7 +348,7 @@ bin/caldav2markdown -test
 
 **Output and Formatting:**
 - `-output`: Output directory for markdown files (default: ./events)
-- `-config`: Configuration file path (default: .env)
+- `-config`: Configuration file path (default: ~/.config/caldav2markdown/config.yaml)
 - `-emoji`: Use 📅 emoji for due dates in tasks
 - `-hashtags`: Add #event and #task hashtags
 - `-calendar-tags`: Add calendar name hashtags (e.g., #work-calendar, #personal)

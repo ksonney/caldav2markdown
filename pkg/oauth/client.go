@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"caldav2markdown/pkg/config"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -295,10 +296,15 @@ func (c *Client) saveTokenToFile(token *oauth2.Token) error {
 }
 
 func (c *Client) getTokenPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	configDir, err := config.GetXDGConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %w", err)
+		return "", fmt.Errorf("failed to get XDG config directory: %w", err)
 	}
 
-	return filepath.Join(homeDir, ".config", "caldav2markdown", TokenFile), nil
+	// Ensure the directory exists
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	return filepath.Join(configDir, TokenFile), nil
 }

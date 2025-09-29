@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,13 +31,38 @@ type SourcedTodo struct {
 }
 
 func main() {
+	// Get default config path with smart detection
+	defaultConfigPath := ".env" // Fallback for backward compatibility
+	if xdgConfigPath, err := config.GetDefaultConfigPath(); err == nil {
+		// Priority order for existing configs:
+		// 1. XDG YAML config (preferred)
+		// 2. XDG .env config (for users who already moved to XDG)
+		// 3. Local .env file (backward compatibility)
+		// 4. Use XDG YAML for new setups
+		xdgEnvPath := filepath.Join(filepath.Dir(xdgConfigPath), "config.env")
+
+		if _, err := os.Stat(xdgConfigPath); err == nil {
+			// XDG YAML config exists - use it
+			defaultConfigPath = xdgConfigPath
+		} else if _, err := os.Stat(xdgEnvPath); err == nil {
+			// XDG .env config exists - use it
+			defaultConfigPath = xdgEnvPath
+		} else if _, err := os.Stat(".env"); err == nil {
+			// Local .env exists - use it for backward compatibility
+			defaultConfigPath = ".env"
+		} else {
+			// No existing config - use XDG YAML for new setups
+			defaultConfigPath = xdgConfigPath
+		}
+	}
+
 	var (
 		// Legacy CalDAV flags
 		url                    = flag.String("url", "", "CalDAV server URL")
 		username               = flag.String("username", "", "CalDAV username")
 		password               = flag.String("password", "", "CalDAV password")
 		outputDir              = flag.String("output", "./events", "Output directory for markdown files")
-		configFile             = flag.String("config", ".env", "Configuration file path")
+		configFile             = flag.String("config", defaultConfigPath, "Configuration file path")
 		testConn               = flag.Bool("test", false, "Test connection only (CalDAV mode)")
 		startDate              = flag.String("start", "", "Start date for events (YYYY-MM-DD)")
 		endDate                = flag.String("end", "", "End date for events (YYYY-MM-DD)")
@@ -297,7 +323,7 @@ func main() {
 		fmt.Println("")
 		fmt.Println("Common Options:")
 		fmt.Println("  -output           Output directory for markdown files (default: ./events)")
-		fmt.Println("  -config           Configuration file path (default: .env)")
+		fmt.Printf("  -config           Configuration file path (default: %s)\n", defaultConfigPath)
 		fmt.Println("  -start            Start date for events (YYYY-MM-DD, default: 2000-01-01)")
 		fmt.Println("  -end              End date for events (YYYY-MM-DD, default: 2 years from now)")
 		fmt.Println("  -emoji            Use 📅 emoji for due dates in tasks")

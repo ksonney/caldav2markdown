@@ -328,6 +328,7 @@ func parseICalDateTime(value string) (time.Time, bool, error) {
 }
 
 // parseICalDateTimeWithTZ parses iCalendar date/time formats with optional time zone
+// and converts the result to local timezone
 func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 	if strings.HasPrefix(value, "0001") {
 		return time.Time{}, false, nil
@@ -335,7 +336,8 @@ func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 
 	// Try UTC format with Z suffix first
 	if t, err := time.Parse("20060102T150405Z", value); err == nil {
-		return t, false, nil
+		// Convert UTC time to local timezone
+		return t.In(time.Local), false, nil
 	}
 
 	// Handle local time with TZID
@@ -344,13 +346,15 @@ func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 			// Load the time zone
 			if loc, err := time.LoadLocation(tzid); err == nil {
 				// Parse the time in the specified time zone
-				localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
-				return localTime, false, nil
+				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+				// Convert to local timezone
+				return sourceTime.In(time.Local), false, nil
 			}
 			// If time zone loading fails, try common time zone mappings
 			if loc := mapTimeZone(tzid); loc != nil {
-				localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
-				return localTime, false, nil
+				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+				// Convert to local timezone
+				return sourceTime.In(time.Local), false, nil
 			}
 			// Fallback: return the time as-is if time zone cannot be resolved
 			return t, false, nil

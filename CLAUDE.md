@@ -133,9 +133,11 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
   - **Calendar Alias Hashtags**: Automatic hashtags from calendar names/aliases (controlled by `USE_CALENDAR_TAGS` config)
   - YAML frontmatter with comprehensive metadata (controlled by `USE_FRONTMATTER` config)
   - Optional description exclusion for cleaner output (controlled by `IGNORE_DESCRIPTIONS` config)
+  - **Ignore Declined Events**: Automatically skip declined events (STATUS=CANCELLED or PARTSTAT=DECLINED) (controlled by `IGNORE_DECLINED` config)
   - Optional event checkboxes for task-like formatting (controlled by `EVENT_CHECKBOXES` config)
   - **Calendar Name Display**: Automatic calendar name extraction with customizable aliases (controlled by `CALENDAR_ALIASES` config)
-  - **Obsidian Tasks Preset**: One-click configuration for Obsidian compatibility - enables event checkboxes, ignores descriptions, frontmatter, emojis, hashtags, and calendar tags (controlled by `OBSIDIAN_TASKS` config)
+  - **Obsidian Tasks Emoji Format**: Use 🛫 for start times and ✅ for end times in Obsidian Tasks format (controlled by `USE_OBSIDIAN_EMOJIS` config)
+  - **Obsidian Tasks Preset**: One-click configuration for Obsidian compatibility - enables event checkboxes, ignores descriptions, frontmatter, emojis, hashtags, calendar tags, and Obsidian time emojis (controlled by `OBSIDIAN_TASKS` config)
   - **Past Event Completion**: Automatic [x] marking for past events when EVENT_CHECKBOXES is enabled
 - **Smart Todo Organization**:
   - Tasks with due dates are organized by date and included in daily files

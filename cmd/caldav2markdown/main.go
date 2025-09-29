@@ -70,8 +70,10 @@ func main() {
 		useHashtags            = flag.Bool("hashtags", false, "Add #event and #task hashtags")
 		useFrontmatter         = flag.Bool("frontmatter", false, "Add YAML frontmatter to markdown files")
 		ignoreDescriptions     = flag.Bool("ignore-descriptions", false, "Ignore event and task descriptions in output")
+		ignoreDeclined         = flag.Bool("ignore-declined", false, "Ignore declined events (STATUS=CANCELLED or PARTSTAT=DECLINED)")
 		eventCheckboxes        = flag.Bool("event-checkboxes", false, "Add checkboxes to events for task-like formatting")
 		obsidianTasks          = flag.Bool("obsidian-tasks", false, "Enable Obsidian tasks preset (event checkboxes, ignore descriptions, frontmatter, emojis, hashtags)")
+		useObsidianEmojis      = flag.Bool("obsidian-emojis", false, "Use Obsidian Tasks emoji format for start/end times (🛫 for start, ✅ for end)")
 		useCalendarTags        = flag.Bool("calendar-tags", false, "Add calendar name tags to events and tasks")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
@@ -162,11 +164,17 @@ func main() {
 	if *ignoreDescriptions {
 		cfg.IgnoreDescriptions = true
 	}
+	if *ignoreDeclined {
+		cfg.IgnoreDeclined = true
+	}
 	if *eventCheckboxes {
 		cfg.EventCheckboxes = true
 	}
 	if *obsidianTasks {
 		cfg.ObsidianTasks = true
+	}
+	if *useObsidianEmojis {
+		cfg.UseObsidianEmojis = true
 	}
 	if *useCalendarTags {
 		cfg.UseCalendarTags = true
@@ -422,13 +430,23 @@ func main() {
 	var eventMarkdowns []markdown.EventMarkdown
 	if len(sourcedEvents) > 0 {
 		fmt.Print("Converting events to markdown format...")
+		declinedCount := 0
 		for i, sourcedEvent := range sourcedEvents {
+			// Check if we should skip declined events
+			if cfg.IgnoreDeclined && isEventDeclined(sourcedEvent.Event) {
+				declinedCount++
+				continue
+			}
 			eventMarkdowns = append(eventMarkdowns, markdown.ConvertEventWithCalendar(sourcedEvent.Event, sourcedEvent.SourceName, cfg.CalendarAliases))
 			if len(sourcedEvents) > 10 && (i+1)%10 == 0 {
 				fmt.Printf("\rConverting events to markdown format... (%d/%d)", i+1, len(sourcedEvents))
 			}
 		}
-		fmt.Printf("\rConverted %d events to markdown format\n", len(sourcedEvents))
+		if declinedCount > 0 {
+			fmt.Printf("\rConverted %d events to markdown format (skipped %d declined)\n", len(eventMarkdowns), declinedCount)
+		} else {
+			fmt.Printf("\rConverted %d events to markdown format\n", len(eventMarkdowns))
+		}
 	}
 
 	// Convert todos to TodoMarkdown format
@@ -442,7 +460,7 @@ func main() {
 
 	// Generate daily aggregated files with both events and tasks
 	fmt.Println("Generating daily files...")
-	if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, progressCallback); err != nil {
+	if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
 		fmt.Printf("\nFailed to generate daily files: %v\n", err)
 		os.Exit(1)
 	}
@@ -773,6 +791,29 @@ func getTodoUID(todo *ics.VTodo) string {
 		return uid.Value
 	}
 	return ""
+}
+
+// isEventDeclined checks if an event has been declined by checking STATUS and PARTSTAT properties
+func isEventDeclined(event *ics.VEvent) bool {
+	// Check the overall event STATUS property
+	if status := event.GetProperty(ics.ComponentPropertyStatus); status != nil {
+		if strings.ToUpper(status.Value) == "CANCELLED" {
+			return true
+		}
+	}
+
+	// Check PARTSTAT (participation status) for ATTENDEE properties
+	// This is the most reliable way to check if the user declined an event
+	for _, attendee := range event.GetProperties("ATTENDEE") {
+		if partstat, exists := attendee.ICalParameters["PARTSTAT"]; exists && len(partstat) > 0 {
+			// Check if any attendee has DECLINED status
+			if strings.ToUpper(partstat[0]) == "DECLINED" {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func writeMarkdownFile(filename, content string) error {

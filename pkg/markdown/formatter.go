@@ -345,6 +345,11 @@ func (em EventMarkdown) ToListItemWithOptions(useHashtags, ignoreDescriptions, u
 
 // ToListItemWithOptionsAndCalendarTags returns a compact markdown list format with full option control
 func (em EventMarkdown) ToListItemWithOptionsAndCalendarTags(useHashtags, ignoreDescriptions, useCheckboxes, useCalendarTags bool) string {
+	return em.ToListItemWithAllOptions(useHashtags, ignoreDescriptions, useCheckboxes, useCalendarTags, false)
+}
+
+// ToListItemWithAllOptions returns a compact markdown list format with complete option control including Obsidian Tasks emojis
+func (em EventMarkdown) ToListItemWithAllOptions(useHashtags, ignoreDescriptions, useCheckboxes, useCalendarTags, useObsidianEmojis bool) string {
 	var sb strings.Builder
 
 	// Choose prefix based on checkbox option and whether event is in the past
@@ -362,12 +367,33 @@ func (em EventMarkdown) ToListItemWithOptionsAndCalendarTags(useHashtags, ignore
 	} else if em.StartTime.IsZero() {
 		sb.WriteString(fmt.Sprintf("%s **%s** (Time TBD)", prefix, em.Title))
 	} else {
-		startTime := em.StartTime.Format("15:04")
-		if em.EndTime.IsZero() || em.EndTime.Equal(em.StartTime) {
-			sb.WriteString(fmt.Sprintf("%s **%s** at %s", prefix, em.Title, startTime))
+		if useObsidianEmojis {
+			// Use Obsidian Tasks emoji format for timed events
+			startDate := em.StartTime.Format("2006-01-02")
+			startTime := em.StartTime.Format("15:04")
+			if em.EndTime.IsZero() || em.EndTime.Equal(em.StartTime) {
+				sb.WriteString(fmt.Sprintf("%s **%s** 🛫 %s %s", prefix, em.Title, startDate, startTime))
+			} else {
+				endDate := em.EndTime.Format("2006-01-02")
+				endTime := em.EndTime.Format("15:04")
+				// Use start emoji for start time and done emoji for end time
+				if startDate == endDate {
+					// Same day - show both times with emojis
+					sb.WriteString(fmt.Sprintf("%s **%s** 🛫 %s %s ✅ %s", prefix, em.Title, startDate, startTime, endTime))
+				} else {
+					// Different days - show full date/time for both
+					sb.WriteString(fmt.Sprintf("%s **%s** 🛫 %s %s ✅ %s %s", prefix, em.Title, startDate, startTime, endDate, endTime))
+				}
+			}
 		} else {
-			endTime := em.EndTime.Format("15:04")
-			sb.WriteString(fmt.Sprintf("%s **%s** (%s - %s)", prefix, em.Title, startTime, endTime))
+			// Original format without Obsidian emojis
+			startTime := em.StartTime.Format("15:04")
+			if em.EndTime.IsZero() || em.EndTime.Equal(em.StartTime) {
+				sb.WriteString(fmt.Sprintf("%s **%s** at %s", prefix, em.Title, startTime))
+			} else {
+				endTime := em.EndTime.Format("15:04")
+				sb.WriteString(fmt.Sprintf("%s **%s** (%s - %s)", prefix, em.Title, startTime, endTime))
+			}
 		}
 	}
 
@@ -1784,7 +1810,7 @@ func GenerateDailyFilesWithTasksAndOptions(outputDir string, events []EventMarkd
 
 // GenerateDailyFilesWithCompleteOptions groups events and tasks by date and creates daily markdown files with all available options
 func GenerateDailyFilesWithCompleteOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes bool) error {
-	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, false, nil)
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, false, false, nil)
 }
 
 // GenerateDailyFilesWithTasksAndFrontmatter groups events and tasks by date and creates daily markdown files with frontmatter
@@ -1804,11 +1830,11 @@ func GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir string, events 
 
 // GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions groups events and tasks by date and creates daily markdown files with full options
 func GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions bool, progressCallback ProgressCallback) error {
-	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, false, false, progressCallback)
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, false, false, false, progressCallback)
 }
 
 // GenerateDailyFilesWithAllOptions groups events and tasks by date and creates daily markdown files with complete control over formatting
-func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags bool, progressCallback ProgressCallback) error {
+func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback ProgressCallback) error {
 	// Group events by date
 	eventsByDate := make(map[string][]EventMarkdown)
 	tasksByDate := make(map[string][]TodoMarkdown)
@@ -1887,11 +1913,11 @@ func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, 
 		var newAllDayEvents, newScheduledEvents, newTasks []string
 
 		for _, event := range allDayEvents {
-			newAllDayEvents = append(newAllDayEvents, strings.TrimSpace(event.ToListItemWithOptionsAndCalendarTags(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags)))
+			newAllDayEvents = append(newAllDayEvents, strings.TrimSpace(event.ToListItemWithAllOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis)))
 		}
 
 		for _, event := range timedEvents {
-			newScheduledEvents = append(newScheduledEvents, strings.TrimSpace(event.ToListItemWithOptionsAndCalendarTags(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags)))
+			newScheduledEvents = append(newScheduledEvents, strings.TrimSpace(event.ToListItemWithAllOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis)))
 		}
 
 		for _, task := range dayTasks {

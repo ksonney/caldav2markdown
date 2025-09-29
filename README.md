@@ -5,6 +5,8 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 ## 🆕 Recent Updates
 
 ### Latest Enhancements (2025)
+- **🚫 Ignore Declined Events**: Automatically skip events you've declined (STATUS=CANCELLED or PARTSTAT=DECLINED) to keep your calendar clean
+- **🎯 Obsidian Tasks Emoji Format**: Added support for Obsidian Tasks emoji format with 🛫 for start times and ✅ for end times
 - **🔧 Fixed Autodiscovery**: Resolved configuration validation issue that prevented autodiscovery from working without explicit SOURCE_MODE setting
 - **🏷️ Calendar Name Display & Aliases**: Events and tasks now display their source calendar with support for custom aliases
 - **🕐 Time Zone Support**: Full TZID parameter support for accurate time zone handling in events and tasks
@@ -186,7 +188,9 @@ USE_HASHTAGS=true
 USE_CALENDAR_TAGS=true
 USE_FRONTMATTER=true
 IGNORE_DESCRIPTIONS=false
+IGNORE_DECLINED=false
 EVENT_CHECKBOXES=false
+USE_OBSIDIAN_EMOJIS=false
 
 # Date Filtering
 START_DATE=2024-01-01
@@ -576,6 +580,54 @@ Event checkboxes provide:
 - **Meeting Attendance**: Track which meetings you've attended
 - **Time-aware Status**: Events are marked based on their actual end time
 - **Unified Format**: Maintain consistency with task checkboxes
+
+**Events with Obsidian Tasks Emoji Format (`-obsidian-emojis` flag or `USE_OBSIDIAN_EMOJIS=true`)**:
+```markdown
+- [ ] **Team Meeting** 🛫 2024-10-17 09:00 ✅ 10:00 @ Conference Room A #event
+- [ ] **Project Review** 🛫 2024-10-17 14:00 ✅ 15:30 @ Room B #event
+- [ ] **Multi-day Conference** 🛫 2024-10-17 09:00 ✅ 2024-10-18 17:00 @ Convention Center #event
+```
+
+Obsidian Tasks emoji format provides:
+- **🛫 Start Time Marker**: Uses the Obsidian Tasks "start date" emoji for event start times
+- **✅ End Time Marker**: Uses the Obsidian Tasks "done date" emoji for event end times
+- **Full Date/Time**: Includes complete date and time information in Obsidian-compatible format
+- **Multi-day Support**: Properly handles events spanning multiple days with separate date/time stamps
+- **Obsidian Integration**: Seamlessly integrates with Obsidian Tasks plugin for query and filtering
+
+### Ignoring Declined Events
+
+You can automatically skip events you've declined to keep your calendar clean and focused on relevant meetings.
+
+**Configuration Example**:
+```env
+IGNORE_DECLINED=true
+```
+
+**YAML Configuration**:
+```yaml
+ignore_declined: true
+```
+
+**CLI Flag**:
+```bash
+bin/caldav2markdown --ignore-declined
+```
+
+The feature detects declined events by checking:
+- **STATUS Property**: Events with `STATUS=CANCELLED` are filtered out
+- **PARTSTAT Parameter**: Events where any attendee has `PARTSTAT=DECLINED` are filtered out
+
+**Benefits**:
+- **Clean Calendar View**: Only see events you've accepted or are considering
+- **Reduced Clutter**: Automatically removes declined meeting invitations
+- **Better Focus**: Concentrate on meetings you're actually attending
+- **Multi-Calendar Support**: Works across all calendar sources (CalDAV, ICS files)
+
+When enabled, the output will show how many declined events were skipped:
+```
+Converted 45 events to markdown format (skipped 5 declined)
+```
 
 ### Calendar Names and Aliases
 

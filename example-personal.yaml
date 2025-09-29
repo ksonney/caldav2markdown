@@ -13,7 +13,9 @@ use_hashtags: true            # For easy searching
 use_calendar_tags: true       # Add calendar name hashtags
 use_frontmatter: true         # For my static site generator
 ignore_descriptions: false    # I want full context
+ignore_declined: true         # Skip events I've declined
 event_checkboxes: true        # Makes events actionable
+use_obsidian_emojis: true     # Use Obsidian Tasks emoji format (🛫 start, ✅ end)
 obsidian_tasks: false         # Manual control over settings
 
 sources:

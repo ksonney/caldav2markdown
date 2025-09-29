@@ -8,7 +8,7 @@ start_date: 2024-01-01T00:00:00Z
 end_date: 2025-12-31T23:59:59Z
 
 # Task-optimized display settings
-obsidian_tasks: true          # Enables: event_checkboxes, ignore_descriptions, frontmatter, emojis, hashtags, calendar_tags
+obsidian_tasks: true          # Enables: event_checkboxes, ignore_descriptions, frontmatter, emojis, hashtags, calendar_tags, obsidian_emojis
 # Note: obsidian_tasks preset automatically sets:
 # - event_checkboxes: true
 # - ignore_descriptions: true
@@ -16,6 +16,7 @@ obsidian_tasks: true          # Enables: event_checkboxes, ignore_descriptions, 
 # - use_due_date_emoji: true
 # - use_hashtags: true
 # - use_calendar_tags: true
+# - use_obsidian_emojis: true (🛫 for start time, ✅ for end time)
 
 sources:
   # Google Tasks via CalDAV

@@ -56,36 +56,39 @@ const (
 
 // CalDAVSource represents a CalDAV server configuration
 type CalDAVSource struct {
-	Name                   string   `yaml:"name"`
-	URL                    string   `yaml:"url"`
-	Username               string   `yaml:"username"`
-	Password               string   `yaml:"password"`
-	UseOAuth               bool     `yaml:"use_oauth"`
-	ClientID               string   `yaml:"client_id"`
-	ClientSecret           string   `yaml:"client_secret"`
-	UseServerSideFiltering bool     `yaml:"use_server_side_filtering"`
-	DiscoverCalendars      bool     `yaml:"discover_calendars"`
-	IncludeCalendars       []string `yaml:"include_calendars"`
-	ExcludeCalendars       []string `yaml:"exclude_calendars"`
-	ProxyURL               string   `yaml:"proxy_url"`
-	ProxyUsername          string   `yaml:"proxy_username"`
-	ProxyPassword          string   `yaml:"proxy_password"`
+	Name                   string            `yaml:"name"`
+	URL                    string            `yaml:"url"`
+	Username               string            `yaml:"username"`
+	Password               string            `yaml:"password"`
+	UseOAuth               bool              `yaml:"use_oauth"`
+	ClientID               string            `yaml:"client_id"`
+	ClientSecret           string            `yaml:"client_secret"`
+	UseServerSideFiltering bool              `yaml:"use_server_side_filtering"`
+	DiscoverCalendars      bool              `yaml:"discover_calendars"`
+	IncludeCalendars       []string          `yaml:"include_calendars"`
+	ExcludeCalendars       []string          `yaml:"exclude_calendars"`
+	CalendarAliases        map[string]string `yaml:"calendar_aliases"`
+	ProxyURL               string            `yaml:"proxy_url"`
+	ProxyUsername          string            `yaml:"proxy_username"`
+	ProxyPassword          string            `yaml:"proxy_password"`
 }
 
 type Config struct {
 	// Global options
-	Output            string            `yaml:"output"`
-	StartDate         time.Time         `yaml:"start_date"`
-	EndDate           time.Time         `yaml:"end_date"`
-	UseDueDateEmoji   bool              `yaml:"use_due_date_emoji"`
-	UseHashtags       bool              `yaml:"use_hashtags"`
-	UseFrontmatter    bool              `yaml:"use_frontmatter"`
-	IgnoreDescriptions bool             `yaml:"ignore_descriptions"`
-	EventCheckboxes   bool              `yaml:"event_checkboxes"`
-	ObsidianTasks     bool              `yaml:"obsidian_tasks"`
-	TraceWebCalls     bool              `yaml:"trace_web_calls"`
-	UseCalendarTags   bool              `yaml:"use_calendar_tags"`
-	CalendarAliases   map[string]string `yaml:"calendar_aliases"`
+	Output              string            `yaml:"output"`
+	StartDate           time.Time         `yaml:"start_date"`
+	EndDate             time.Time         `yaml:"end_date"`
+	UseDueDateEmoji     bool              `yaml:"use_due_date_emoji"`
+	UseHashtags         bool              `yaml:"use_hashtags"`
+	UseFrontmatter      bool              `yaml:"use_frontmatter"`
+	IgnoreDescriptions  bool              `yaml:"ignore_descriptions"`
+	IgnoreDeclined      bool              `yaml:"ignore_declined"`
+	EventCheckboxes     bool              `yaml:"event_checkboxes"`
+	ObsidianTasks       bool              `yaml:"obsidian_tasks"`
+	UseObsidianEmojis   bool              `yaml:"use_obsidian_emojis"`
+	TraceWebCalls       bool              `yaml:"trace_web_calls"`
+	UseCalendarTags     bool              `yaml:"use_calendar_tags"`
+	CalendarAliases     map[string]string `yaml:"calendar_aliases"`
 
 	// Multi-source configuration
 	Sources []SourceConfig `yaml:"sources"`
@@ -373,10 +376,14 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.UseFrontmatter = strings.ToLower(value) == "true" || value == "1"
 		case "IGNORE_DESCRIPTIONS":
 			config.IgnoreDescriptions = strings.ToLower(value) == "true" || value == "1"
+		case "IGNORE_DECLINED":
+			config.IgnoreDeclined = strings.ToLower(value) == "true" || value == "1"
 		case "EVENT_CHECKBOXES":
 			config.EventCheckboxes = strings.ToLower(value) == "true" || value == "1"
 		case "OBSIDIAN_TASKS":
 			config.ObsidianTasks = strings.ToLower(value) == "true" || value == "1"
+		case "USE_OBSIDIAN_EMOJIS":
+			config.UseObsidianEmojis = strings.ToLower(value) == "true" || value == "1"
 		case "USE_SERVER_SIDE_FILTERING":
 			config.UseServerSideFiltering = strings.ToLower(value) == "true" || value == "1"
 		case "DISCOVER_CALENDARS":
@@ -694,6 +701,7 @@ func (c *Config) ApplyObsidianTasksPreset() {
 		c.UseDueDateEmoji = true
 		c.UseHashtags = true
 		c.UseCalendarTags = true
+		c.UseObsidianEmojis = true
 	}
 }
 

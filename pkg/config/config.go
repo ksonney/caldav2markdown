@@ -56,36 +56,36 @@ const (
 
 // CalDAVSource represents a CalDAV server configuration
 type CalDAVSource struct {
-	Name                   string            `yaml:"name"`
-	URL                    string            `yaml:"url"`
-	Username               string            `yaml:"username"`
-	Password               string            `yaml:"password"`
-	UseOAuth               bool              `yaml:"use_oauth"`
-	ClientID               string            `yaml:"client_id"`
-	ClientSecret           string            `yaml:"client_secret"`
-	UseServerSideFiltering bool              `yaml:"use_server_side_filtering"`
-	DiscoverCalendars      bool              `yaml:"discover_calendars"`
-	IncludeCalendars       []string          `yaml:"include_calendars"`
-	ExcludeCalendars       []string          `yaml:"exclude_calendars"`
-	CalendarAliases        map[string]string `yaml:"calendar_aliases"`
-	ProxyURL               string            `yaml:"proxy_url"`
-	ProxyUsername          string            `yaml:"proxy_username"`
-	ProxyPassword          string            `yaml:"proxy_password"`
+	Name                   string   `yaml:"name"`
+	URL                    string   `yaml:"url"`
+	Username               string   `yaml:"username"`
+	Password               string   `yaml:"password"`
+	UseOAuth               bool     `yaml:"use_oauth"`
+	ClientID               string   `yaml:"client_id"`
+	ClientSecret           string   `yaml:"client_secret"`
+	UseServerSideFiltering bool     `yaml:"use_server_side_filtering"`
+	DiscoverCalendars      bool     `yaml:"discover_calendars"`
+	IncludeCalendars       []string `yaml:"include_calendars"`
+	ExcludeCalendars       []string `yaml:"exclude_calendars"`
+	ProxyURL               string   `yaml:"proxy_url"`
+	ProxyUsername          string   `yaml:"proxy_username"`
+	ProxyPassword          string   `yaml:"proxy_password"`
 }
 
 type Config struct {
 	// Global options
-	Output            string    `yaml:"output"`
-	StartDate         time.Time `yaml:"start_date"`
-	EndDate           time.Time `yaml:"end_date"`
-	UseDueDateEmoji   bool      `yaml:"use_due_date_emoji"`
-	UseHashtags       bool      `yaml:"use_hashtags"`
-	UseFrontmatter    bool      `yaml:"use_frontmatter"`
-	IgnoreDescriptions bool     `yaml:"ignore_descriptions"`
-	EventCheckboxes   bool      `yaml:"event_checkboxes"`
-	ObsidianTasks     bool      `yaml:"obsidian_tasks"`
-	TraceWebCalls     bool      `yaml:"trace_web_calls"`
-	UseCalendarTags   bool      `yaml:"use_calendar_tags"`
+	Output            string            `yaml:"output"`
+	StartDate         time.Time         `yaml:"start_date"`
+	EndDate           time.Time         `yaml:"end_date"`
+	UseDueDateEmoji   bool              `yaml:"use_due_date_emoji"`
+	UseHashtags       bool              `yaml:"use_hashtags"`
+	UseFrontmatter    bool              `yaml:"use_frontmatter"`
+	IgnoreDescriptions bool             `yaml:"ignore_descriptions"`
+	EventCheckboxes   bool              `yaml:"event_checkboxes"`
+	ObsidianTasks     bool              `yaml:"obsidian_tasks"`
+	TraceWebCalls     bool              `yaml:"trace_web_calls"`
+	UseCalendarTags   bool              `yaml:"use_calendar_tags"`
+	CalendarAliases   map[string]string `yaml:"calendar_aliases"`
 
 	// Multi-source configuration
 	Sources []SourceConfig `yaml:"sources"`
@@ -98,7 +98,6 @@ type Config struct {
 	DiscoverCalendars     bool
 	IncludeCalendars      []string
 	ExcludeCalendars      []string
-	CalendarAliases       map[string]string
 	UseOAuth        bool
 	ClientID        string
 	ClientSecret    string
@@ -188,7 +187,7 @@ func (c *Config) parseMultiSourceConfig(key, value string) bool {
 		switch sourceType {
 		case "caldav":
 			if source.CalDAVSource == nil {
-				source.CalDAVSource = &CalDAVSource{CalendarAliases: make(map[string]string)}
+				source.CalDAVSource = &CalDAVSource{}
 			}
 			success := c.parseCalDAVSourceField(source.CalDAVSource, field, value)
 			if !success {
@@ -198,8 +197,7 @@ func (c *Config) parseMultiSourceConfig(key, value string) bool {
 		case "ics":
 			if source.ICSSource == nil {
 				source.ICSSource = &ics.Source{
-					Headers:         make(map[string]string),
-					CalendarAliases: make(map[string]string),
+					Headers: make(map[string]string),
 				}
 			}
 			success := c.parseICSSourceField(source.ICSSource, field, value)
@@ -249,20 +247,6 @@ func (c *Config) parseCalDAVSourceField(source *CalDAVSource, field, value strin
 			source.ExcludeCalendars = strings.Split(value, ",")
 			for i, cal := range source.ExcludeCalendars {
 				source.ExcludeCalendars[i] = strings.TrimSpace(cal)
-			}
-		}
-	case "CALENDAR_ALIASES":
-		if value != "" {
-			pairs := strings.Split(value, ",")
-			for _, pair := range pairs {
-				parts := strings.Split(pair, ":")
-				if len(parts) == 2 {
-					key := strings.TrimSpace(parts[0])
-					alias := strings.TrimSpace(parts[1])
-					if key != "" && alias != "" {
-						source.CalendarAliases[key] = alias
-					}
-				}
 			}
 		}
 	case "PROXY_URL":
@@ -317,23 +301,6 @@ func (c *Config) parseICSSourceField(source *ics.Source, field, value string) bo
 			source.Timeout = timeout
 		} else {
 			fmt.Printf("Warning: invalid timeout format '%s', using default\n", value)
-		}
-	case "CALENDAR_ALIASES":
-		if value != "" {
-			if source.CalendarAliases == nil {
-				source.CalendarAliases = make(map[string]string)
-			}
-			pairs := strings.Split(value, ",")
-			for _, pair := range pairs {
-				parts := strings.Split(pair, ":")
-				if len(parts) == 2 {
-					key := strings.TrimSpace(parts[0])
-					alias := strings.TrimSpace(parts[1])
-					if key != "" && alias != "" {
-						source.CalendarAliases[key] = alias
-					}
-				}
-			}
 		}
 	default:
 		// Handle headers (format: HEADER_<name>)
@@ -557,14 +524,8 @@ func LoadFromYAMLFile(filename string) (*Config, error) {
 
 	// Initialize calendar aliases for sources if not present
 	for i := range config.Sources {
-		if config.Sources[i].CalDAVSource != nil && config.Sources[i].CalDAVSource.CalendarAliases == nil {
-			config.Sources[i].CalDAVSource.CalendarAliases = make(map[string]string)
-		}
 		if config.Sources[i].ICSSource != nil && config.Sources[i].ICSSource.Headers == nil {
 			config.Sources[i].ICSSource.Headers = make(map[string]string)
-		}
-		if config.Sources[i].ICSSource != nil && config.Sources[i].ICSSource.CalendarAliases == nil {
-			config.Sources[i].ICSSource.CalendarAliases = make(map[string]string)
 		}
 	}
 
@@ -759,7 +720,6 @@ func (c *Config) migrateLegacyConfig() {
 				DiscoverCalendars:      c.DiscoverCalendars,
 				IncludeCalendars:       c.IncludeCalendars,
 				ExcludeCalendars:       c.ExcludeCalendars,
-				CalendarAliases:        c.CalendarAliases,
 				ProxyURL:               c.ProxyURL,
 				ProxyUsername:          c.ProxyUsername,
 				ProxyPassword:          c.ProxyPassword,
@@ -991,10 +951,6 @@ func (c *Config) validateCalDAVSource(source CalDAVSource) error {
 		return fmt.Errorf("invalid calendar filters: %w", err)
 	}
 
-	// Validate calendar aliases
-	if err := c.validateCalendarAliases(source.CalendarAliases); err != nil {
-		return fmt.Errorf("invalid calendar aliases: %w", err)
-	}
 
 	return nil
 }
@@ -1139,14 +1095,13 @@ func (c *Config) ToICSSource() (ics.Source, error) {
 	}
 
 	source := ics.Source{
-		Name:            "default",
-		Auth:            c.ICSAuth,
-		Username:        c.ICSUsername,
-		Password:        c.ICSPassword,
-		Token:           c.ICSToken,
-		Headers:         c.ICSHeaders,
-		Timeout:         c.ICSTimeout,
-		CalendarAliases: c.CalendarAliases,
+		Name:     "default",
+		Auth:     c.ICSAuth,
+		Username: c.ICSUsername,
+		Password: c.ICSPassword,
+		Token:    c.ICSToken,
+		Headers:  c.ICSHeaders,
+		Timeout:  c.ICSTimeout,
 	}
 
 	if c.ICSPath != "" {

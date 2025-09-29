@@ -16,8 +16,7 @@ type EventData struct {
 	Todos             []*ics.VTodo
 	DuplicatesFound   int
 	ProcessingReport  string
-	SourceName        string            // Name of the ICS source
-	CalendarAliases   map[string]string // Calendar aliases for this source
+	SourceName        string // Name of the ICS source
 }
 
 // ProgressCallback is used for progress reporting during processing
@@ -171,7 +170,6 @@ func (p *Processor) processCalendar(calendar *ics.Calendar, progressCallback Pro
 		DuplicatesFound:  duplicatesFound,
 		ProcessingReport: report,
 		SourceName:       p.source.Name,
-		CalendarAliases:  p.source.CalendarAliases,
 	}, nil
 }
 

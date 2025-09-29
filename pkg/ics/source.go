@@ -42,7 +42,6 @@ type Source struct {
 	Token           string            `yaml:"token"`       // For bearer auth
 	Headers         map[string]string `yaml:"headers"`     // For custom headers
 	Timeout         time.Duration     `yaml:"timeout"`     // HTTP timeout for remote sources
-	CalendarAliases map[string]string `yaml:"calendar_aliases"` // Calendar name aliases
 }
 
 // ICSReader is an interface for reading ICS content from different sources

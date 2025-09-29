@@ -348,18 +348,20 @@ func main() {
 	}
 
 	// Process sources (either multi-source or legacy single-source)
-	var events []*ics.VEvent
-	var todos []*ics.VTodo
+	var sourcedEvents []SourcedEvent
+	var sourcedTodos []SourcedTodo
 	var duplicatesFound int
 
 	if cfg.HasMultipleSources() {
 		// Multi-source processing
-		if err := processMultipleSources(cfg, progressCallback, *listCalendars, *testConn, &events, &todos, &duplicatesFound); err != nil {
+		if err := processMultipleSources(cfg, progressCallback, *listCalendars, *testConn, &sourcedEvents, &sourcedTodos, &duplicatesFound); err != nil {
 			fmt.Printf("\nError: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
 		// Legacy single-source processing
+		var events []*ics.VEvent
+		var todos []*ics.VTodo
 		switch cfg.SourceMode {
 		case config.SourceModeCalDAV:
 			if err := processCalDAVMode(cfg, progressCallback, *listCalendars, *testConn, &events, &todos, &duplicatesFound); err != nil {
@@ -375,9 +377,25 @@ func main() {
 			fmt.Printf("Unsupported source mode: %s\n", cfg.SourceMode)
 			os.Exit(1)
 		}
+
+		// Convert legacy events and todos to sourced format
+		for _, event := range events {
+			sourcedEvents = append(sourcedEvents, SourcedEvent{
+				Event:           event,
+				SourceName:      cfg.URL, // Use URL as source name for legacy mode
+				CalendarAliases: cfg.CalendarAliases,
+			})
+		}
+		for _, todo := range todos {
+			sourcedTodos = append(sourcedTodos, SourcedTodo{
+				Todo:            todo,
+				SourceName:      cfg.URL, // Use URL as source name for legacy mode
+				CalendarAliases: cfg.CalendarAliases,
+			})
+		}
 	}
 
-	if len(events) == 0 && len(todos) == 0 {
+	if len(sourcedEvents) == 0 && len(sourcedTodos) == 0 {
 		fmt.Println("No events or tasks found.")
 		return
 	}
@@ -392,33 +410,33 @@ func main() {
 	}
 
 	// Report what was found
-	if len(events) > 0 && len(todos) > 0 {
-		fmt.Printf("Found %d events and %d tasks, converting to daily markdown files...\n", len(events), len(todos))
-	} else if len(events) > 0 {
-		fmt.Printf("Found %d events, converting to daily markdown files...\n", len(events))
+	if len(sourcedEvents) > 0 && len(sourcedTodos) > 0 {
+		fmt.Printf("Found %d events and %d tasks, converting to daily markdown files...\n", len(sourcedEvents), len(sourcedTodos))
+	} else if len(sourcedEvents) > 0 {
+		fmt.Printf("Found %d events, converting to daily markdown files...\n", len(sourcedEvents))
 	} else {
-		fmt.Printf("Found %d tasks, converting to daily markdown files...\n", len(todos))
+		fmt.Printf("Found %d tasks, converting to daily markdown files...\n", len(sourcedTodos))
 	}
 
 	// Convert events to EventMarkdown format
 	var eventMarkdowns []markdown.EventMarkdown
-	if len(events) > 0 {
+	if len(sourcedEvents) > 0 {
 		fmt.Print("Converting events to markdown format...")
-		for i, event := range events {
-			eventMarkdowns = append(eventMarkdowns, markdown.ConvertEventWithCalendar(event, "", cfg.CalendarAliases))
-			if len(events) > 10 && (i+1)%10 == 0 {
-				fmt.Printf("\rConverting events to markdown format... (%d/%d)", i+1, len(events))
+		for i, sourcedEvent := range sourcedEvents {
+			eventMarkdowns = append(eventMarkdowns, markdown.ConvertEventWithCalendar(sourcedEvent.Event, sourcedEvent.SourceName, cfg.CalendarAliases))
+			if len(sourcedEvents) > 10 && (i+1)%10 == 0 {
+				fmt.Printf("\rConverting events to markdown format... (%d/%d)", i+1, len(sourcedEvents))
 			}
 		}
-		fmt.Printf("\rConverted %d events to markdown format\n", len(events))
+		fmt.Printf("\rConverted %d events to markdown format\n", len(sourcedEvents))
 	}
 
 	// Convert todos to TodoMarkdown format
 	var todoMarkdowns []markdown.TodoMarkdown
-	if len(todos) > 0 {
-		fmt.Printf("Converting %d tasks to markdown format...\n", len(todos))
-		for _, todo := range todos {
-			todoMarkdowns = append(todoMarkdowns, markdown.ConvertTodoWithCalendar(todo, "", cfg.CalendarAliases))
+	if len(sourcedTodos) > 0 {
+		fmt.Printf("Converting %d tasks to markdown format...\n", len(sourcedTodos))
+		for _, sourcedTodo := range sourcedTodos {
+			todoMarkdowns = append(todoMarkdowns, markdown.ConvertTodoWithCalendar(sourcedTodo.Todo, sourcedTodo.SourceName, cfg.CalendarAliases))
 		}
 	}
 
@@ -453,7 +471,7 @@ func main() {
 		dateCount[dateKey] = true
 	}
 
-	fmt.Printf("Successfully created %d daily files for %d events and %d tasks\n", len(dateCount), len(events), len(todos))
+	fmt.Printf("Successfully created %d daily files for %d events and %d tasks\n", len(dateCount), len(sourcedEvents), len(sourcedTodos))
 }
 
 // processCalDAVMode handles CalDAV-specific processing
@@ -558,7 +576,7 @@ func processICSMode(cfg *config.Config, progressCallback func(string, int, int),
 }
 
 // processMultipleSources handles multi-source processing
-func processMultipleSources(cfg *config.Config, progressCallback func(string, int, int), listCalendars, testConn bool, events *[]*ics.VEvent, todos *[]*ics.VTodo, duplicatesFound *int) error {
+func processMultipleSources(cfg *config.Config, progressCallback func(string, int, int), listCalendars, testConn bool, sourcedEvents *[]SourcedEvent, sourcedTodos *[]SourcedTodo, duplicatesFound *int) error {
 	sources := cfg.GetSources()
 	if len(sources) == 0 {
 		return fmt.Errorf("no sources configured")
@@ -566,8 +584,8 @@ func processMultipleSources(cfg *config.Config, progressCallback func(string, in
 
 	fmt.Printf("Processing %d calendar source(s)...\n", len(sources))
 
-	var allEvents []*ics.VEvent
-	var allTodos []*ics.VTodo
+	var allSourcedEvents []SourcedEvent
+	var allSourcedTodos []SourcedTodo
 	var totalDuplicates int
 	seenUIDs := make(map[string]bool)
 
@@ -599,7 +617,7 @@ func processMultipleSources(cfg *config.Config, progressCallback func(string, in
 		eventsAdded := 0
 		todosAdded := 0
 
-		// Deduplicate events globally
+		// Deduplicate events globally and preserve source information
 		for _, event := range sourceEvents {
 			uid := getEventUID(event)
 			if uid != "" && seenUIDs[uid] {
@@ -609,11 +627,15 @@ func processMultipleSources(cfg *config.Config, progressCallback func(string, in
 			if uid != "" {
 				seenUIDs[uid] = true
 			}
-			allEvents = append(allEvents, event)
+			allSourcedEvents = append(allSourcedEvents, SourcedEvent{
+				Event:           event,
+				SourceName:      source.Name,
+				CalendarAliases: cfg.CalendarAliases,
+			})
 			eventsAdded++
 		}
 
-		// Deduplicate todos globally
+		// Deduplicate todos globally and preserve source information
 		for _, todo := range sourceTodos {
 			uid := getTodoUID(todo)
 			if uid != "" && seenUIDs[uid] {
@@ -623,7 +645,11 @@ func processMultipleSources(cfg *config.Config, progressCallback func(string, in
 			if uid != "" {
 				seenUIDs[uid] = true
 			}
-			allTodos = append(allTodos, todo)
+			allSourcedTodos = append(allSourcedTodos, SourcedTodo{
+				Todo:            todo,
+				SourceName:      source.Name,
+				CalendarAliases: cfg.CalendarAliases,
+			})
 			todosAdded++
 		}
 
@@ -636,15 +662,15 @@ func processMultipleSources(cfg *config.Config, progressCallback func(string, in
 		totalSourceDuplicates += sourceDuplicates
 	}
 
-	*events = allEvents
-	*todos = allTodos
+	*sourcedEvents = allSourcedEvents
+	*sourcedTodos = allSourcedTodos
 	*duplicatesFound = totalDuplicates + totalSourceDuplicates
 
 	if totalDuplicates > 0 {
 		fmt.Printf("\nGlobal deduplication removed %d duplicate items across all sources\n", totalDuplicates)
 	}
 
-	fmt.Printf("\nTotal: %d events and %d tasks from %d sources\n", len(allEvents), len(allTodos), len(sources))
+	fmt.Printf("\nTotal: %d events and %d tasks from %d sources\n", len(allSourcedEvents), len(allSourcedTodos), len(sources))
 
 	return nil
 }

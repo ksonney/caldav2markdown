@@ -117,7 +117,8 @@ type EventMarkdown struct {
 	UID         string
 	Status      string
 	Categories  []string
-	Calendar    string
+	Calendar    string // Display name (alias if available, otherwise original name)
+	CalendarOriginal string // Original calendar name for hashtag generation
 }
 
 // IsPastEvent determines if an event has already occurred
@@ -154,7 +155,8 @@ type TodoMarkdown struct {
 	Completed   bool
 	UID         string
 	Categories  []string
-	Calendar    string
+	Calendar    string // Display name (alias if available, otherwise original name)
+	CalendarOriginal string // Original calendar name for hashtag generation
 }
 
 // ConvertEventWithCalendar converts an event with calendar name and alias information
@@ -167,7 +169,10 @@ func ConvertEventWithCalendar(event *ics.VEvent, calendarName string, calendarAl
 		finalCalendarName = md.Calendar
 	}
 
-	// Set calendar name, using alias if available
+	// Store original calendar name for hashtag generation
+	md.CalendarOriginal = finalCalendarName
+
+	// Set display calendar name, using alias if available
 	if finalCalendarName != "" {
 		if alias, exists := calendarAliases[finalCalendarName]; exists {
 			md.Calendar = alias
@@ -374,15 +379,24 @@ func (em EventMarkdown) ToListItemWithOptionsAndCalendarTags(useHashtags, ignore
 		sb.WriteString(fmt.Sprintf(" [%s]", em.Calendar))
 	}
 
+	// Collect hashtags and deduplicate them
+	var hashtags []string
+
 	if useHashtags {
-		sb.WriteString(" #event")
+		hashtags = append(hashtags, "#event")
 	}
 
-	if useCalendarTags && em.Calendar != "" {
-		calendarTag := sanitizeForHashtag(em.Calendar)
+	if useCalendarTags && em.CalendarOriginal != "" {
+		calendarTag := sanitizeForHashtag(em.CalendarOriginal)
 		if calendarTag != "" {
-			sb.WriteString(fmt.Sprintf(" #%s", calendarTag))
+			hashtags = append(hashtags, "#"+calendarTag)
 		}
+	}
+
+	// Deduplicate and add hashtags
+	hashtags = deduplicateHashtags(hashtags)
+	if len(hashtags) > 0 {
+		sb.WriteString(" " + strings.Join(hashtags, " "))
 	}
 
 	if !ignoreDescriptions && em.Description != "" {
@@ -444,7 +458,10 @@ func ConvertTodoWithCalendar(todo *ics.VTodo, calendarName string, calendarAlias
 		finalCalendarName = md.Calendar
 	}
 
-	// Set calendar name, using alias if available
+	// Store original calendar name for hashtag generation
+	md.CalendarOriginal = finalCalendarName
+
+	// Set display calendar name, using alias if available
 	if finalCalendarName != "" {
 		if alias, exists := calendarAliases[finalCalendarName]; exists {
 			md.Calendar = alias
@@ -553,15 +570,24 @@ func (tm TodoMarkdown) ToMarkdownWithOptionsAndCalendarTags(useDueDateEmoji, use
 		sb.WriteString(fmt.Sprintf(" [%s]", tm.Calendar))
 	}
 
+	// Collect hashtags and deduplicate them
+	var hashtags []string
+
 	if useHashtags {
-		sb.WriteString(" #task")
+		hashtags = append(hashtags, "#task")
 	}
 
-	if useCalendarTags && tm.Calendar != "" {
-		calendarTag := sanitizeForHashtag(tm.Calendar)
+	if useCalendarTags && tm.CalendarOriginal != "" {
+		calendarTag := sanitizeForHashtag(tm.CalendarOriginal)
 		if calendarTag != "" {
-			sb.WriteString(fmt.Sprintf(" #%s", calendarTag))
+			hashtags = append(hashtags, "#"+calendarTag)
 		}
+	}
+
+	// Deduplicate and add hashtags
+	hashtags = deduplicateHashtags(hashtags)
+	if len(hashtags) > 0 {
+		sb.WriteString(" " + strings.Join(hashtags, " "))
 	}
 
 	sb.WriteString("\n")
@@ -1044,13 +1070,38 @@ func updateSingleItemWithHashtags(item string, useHashtags, useCalendarTags bool
 	baseItem := hashtagPattern.ReplaceAllString(item, "")
 	baseItem = strings.TrimSpace(baseItem)
 
-	// Combine existing and new hashtags
+	// Combine existing and new hashtags, then deduplicate
 	allHashtags := append(existingHashtags, newHashtags...)
+	allHashtags = deduplicateHashtags(allHashtags)
 	if len(allHashtags) > 0 {
 		return baseItem + " " + strings.Join(allHashtags, " ")
 	}
 
 	return baseItem
+}
+
+// isInvalidHashtag checks if a hashtag should be filtered out
+func isInvalidHashtag(tag string) bool {
+	// Filter out empty, whitespace-only, or very short meaningless tags
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return true
+	}
+
+	// Filter out specific invalid hashtags
+	invalidTags := []string{"-", "x", "_", ".", ",", ":", ";", "!", "?"}
+	for _, invalid := range invalidTags {
+		if tag == invalid {
+			return true
+		}
+	}
+
+	// Filter out single character tags that are not alphanumeric
+	if len(tag) == 1 && !((tag[0] >= 'a' && tag[0] <= 'z') || (tag[0] >= '0' && tag[0] <= '9')) {
+		return true
+	}
+
+	return false
 }
 
 // sanitizeForHashtag converts a calendar name to a clean hashtag format
@@ -1074,6 +1125,50 @@ func sanitizeForHashtag(calendarName string) string {
 	}
 	// Trim leading and trailing hyphens
 	result = strings.Trim(result, "-")
+
+	// Filter out invalid hashtags
+	if isInvalidHashtag(result) {
+		return ""
+	}
+
+	return result
+}
+
+// deduplicateHashtags removes duplicate hashtags from a slice while preserving order
+func deduplicateHashtags(hashtags []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+
+	for _, hashtag := range hashtags {
+		hashtag = strings.TrimSpace(hashtag)
+
+		// Skip empty hashtags and invalid hashtags
+		if hashtag == "" {
+			continue
+		}
+
+		// Remove # prefix if present for validation, then add it back
+		cleanTag := hashtag
+		if strings.HasPrefix(hashtag, "#") {
+			cleanTag = hashtag[1:]
+		}
+
+		// Skip invalid hashtags
+		if isInvalidHashtag(cleanTag) {
+			continue
+		}
+
+		// Ensure hashtag has # prefix
+		if !strings.HasPrefix(hashtag, "#") {
+			hashtag = "#" + hashtag
+		}
+
+		if !seen[hashtag] {
+			seen[hashtag] = true
+			result = append(result, hashtag)
+		}
+	}
+
 	return result
 }
 

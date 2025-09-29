@@ -639,3 +639,118 @@ func TestProgressCallback(t *testing.T) {
 		}
 	}
 }
+
+// TestIsInvalidHashtag tests the hashtag validation function
+func TestIsInvalidHashtag(t *testing.T) {
+	tests := []struct {
+		tag      string
+		expected bool
+		name     string
+	}{
+		{"", true, "empty string"},
+		{"   ", true, "whitespace only"},
+		{"-", true, "single dash"},
+		{"x", true, "single x"},
+		{"_", true, "single underscore"},
+		{".", true, "single dot"},
+		{",", true, "single comma"},
+		{":", true, "single colon"},
+		{";", true, "single semicolon"},
+		{"!", true, "single exclamation"},
+		{"?", true, "single question mark"},
+		{"a", false, "valid single letter"},
+		{"5", false, "valid single digit"},
+		{"work", false, "valid word"},
+		{"personal-calendar", false, "valid hyphenated tag"},
+		{"team123", false, "valid alphanumeric tag"},
+	}
+
+	for _, test := range tests {
+		result := isInvalidHashtag(test.tag)
+		if result != test.expected {
+			t.Errorf("isInvalidHashtag(%q) = %v, expected %v (test: %s)", test.tag, result, test.expected, test.name)
+		}
+	}
+}
+
+// TestSanitizeForHashtag tests the hashtag sanitization function
+func TestSanitizeForHashtag(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+		name     string
+	}{
+		{"Work Calendar", "work-calendar", "spaces to hyphens"},
+		{"Personal_Calendar", "personal-calendar", "underscores to hyphens"},
+		{"Team@Company", "teamcompany", "special chars removed"},
+		{"Project 123", "project-123", "numbers preserved"},
+		{"", "", "empty input"},
+		{" - ", "", "invalid single dash filtered"},
+		{"X", "", "invalid single X filtered"},
+		{"Multiple   Spaces", "multiple-spaces", "multiple spaces collapsed"},
+		{"--dash--prefix--", "dash-prefix", "multiple dashes cleaned"},
+		{"Calendar-2024", "calendar-2024", "valid hyphenated name"},
+		{"___", "", "only underscores filtered"},
+		{"!@#$%", "", "only symbols filtered"},
+	}
+
+	for _, test := range tests {
+		result := sanitizeForHashtag(test.input)
+		if result != test.expected {
+			t.Errorf("sanitizeForHashtag(%q) = %q, expected %q (test: %s)", test.input, result, test.expected, test.name)
+		}
+	}
+}
+
+// TestDeduplicateHashtags tests the hashtag deduplication function
+func TestDeduplicateHashtags(t *testing.T) {
+	tests := []struct {
+		input    []string
+		expected []string
+		name     string
+	}{
+		{
+			[]string{"#event", "#work", "#event"},
+			[]string{"#event", "#work"},
+			"basic deduplication",
+		},
+		{
+			[]string{"#event", "#-", "#work", "#x"},
+			[]string{"#event", "#work"},
+			"invalid hashtags filtered",
+		},
+		{
+			[]string{"event", "work", "event"},
+			[]string{"#event", "#work"},
+			"hashtags without # prefix",
+		},
+		{
+			[]string{"", " ", "#event", "  #work  "},
+			[]string{"#event", "#work"},
+			"whitespace handling",
+		},
+		{
+			[]string{"#_", "#.", "#valid", "#!"},
+			[]string{"#valid"},
+			"all invalid symbols filtered",
+		},
+		{
+			[]string{},
+			[]string{},
+			"empty input",
+		},
+	}
+
+	for _, test := range tests {
+		result := deduplicateHashtags(test.input)
+		if len(result) != len(test.expected) {
+			t.Errorf("deduplicateHashtags(%v) length = %d, expected %d (test: %s)", test.input, len(result), len(test.expected), test.name)
+			continue
+		}
+		for i, hashtag := range result {
+			if hashtag != test.expected[i] {
+				t.Errorf("deduplicateHashtags(%v)[%d] = %q, expected %q (test: %s)", test.input, i, hashtag, test.expected[i], test.name)
+			}
+		}
+	}
+}

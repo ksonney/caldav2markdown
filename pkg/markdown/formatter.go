@@ -35,40 +35,65 @@ func parseICalDateTime(value string) (time.Time, bool, error) {
 }
 
 // parseICalDateTimeWithTZ attempts to parse an iCalendar date/time string with optional time zone
-// and converts the result to local timezone
+// Returns the time in UTC for consistent handling, with proper timezone conversion
 func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 	if strings.HasPrefix(value, "0001") {
 		return time.Time{}, false, nil
 	}
 
-	// Try UTC format with Z suffix first
-	if t, err := time.Parse("20060102T150405Z", value); err == nil {
-		// Convert UTC time to local timezone
-		return t.In(time.Local), false, nil
-	}
+	// Remove any whitespace
+	value = strings.TrimSpace(value)
+	tzid = strings.TrimSpace(tzid)
 
-	// Handle local time with TZID
-	if tzid != "" {
-		if t, err := time.Parse("20060102T150405", value); err == nil {
-			// Load the time zone
-			if loc, err := time.LoadLocation(tzid); err == nil {
-				// Parse the time in the specified time zone
-				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
-				// Convert to local timezone
-				return sourceTime.In(time.Local), false, nil
-			}
-			// If time zone loading fails, try common time zone mappings
-			if loc := mapTimeZone(tzid); loc != nil {
-				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
-				// Convert to local timezone
-				return sourceTime.In(time.Local), false, nil
-			}
-			// Fallback: return the time as-is if time zone cannot be resolved
+	// Try UTC format with Z suffix first
+	if strings.HasSuffix(value, "Z") {
+		if t, err := time.Parse("20060102T150405Z", value); err == nil {
+			return t, false, nil // Already in UTC
+		}
+		// Try with fractional seconds
+		if t, err := time.Parse("20060102T150405.000Z", value); err == nil {
 			return t, false, nil
 		}
 	}
 
-	// Try local time format without Z suffix (fallback)
+	// Handle local time with TZID
+	if tzid != "" {
+		// Try parsing with time component
+		if t, err := time.Parse("20060102T150405", value); err == nil {
+			// Try to load the time zone using our enhanced mapping
+			if loc := mapTimeZone(tzid); loc != nil {
+				// Parse the time in the specified time zone
+				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+				// Return as UTC for consistent handling
+				return sourceTime.UTC(), false, nil
+			}
+			// If timezone cannot be resolved, treat as local time and warn
+			// This preserves the original behavior but makes it explicit
+			return t, false, fmt.Errorf("unrecognized timezone '%s', treating as local time", tzid)
+		}
+
+		// Try with fractional seconds
+		if t, err := time.Parse("20060102T150405.000", value); err == nil {
+			if loc := mapTimeZone(tzid); loc != nil {
+				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+				return sourceTime.UTC(), false, nil
+			}
+			return t, false, fmt.Errorf("unrecognized timezone '%s', treating as local time", tzid)
+		}
+	}
+
+	// Try local time format without Z suffix and without TZID
+	if t, err := time.Parse("20060102T150405", value); err == nil {
+		// Assume local timezone when no TZID is provided
+		return t, false, nil
+	}
+
+	// Try with fractional seconds
+	if t, err := time.Parse("20060102T150405.000", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try time with shorter format (HHMMSS)
 	if t, err := time.Parse("20060102T150405", value); err == nil {
 		return t, false, nil
 	}
@@ -78,29 +103,107 @@ func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 		return t, true, nil // true indicates all-day
 	}
 
-	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s", value)
+	// Try date with dashes (less common but valid)
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return t, true, nil
+	}
+
+	// Try datetime with dashes and colons
+	if t, err := time.Parse("2006-01-02T15:04:05", value); err == nil {
+		return t, false, nil
+	}
+
+	// Try datetime with dashes, colons, and timezone
+	if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
+		return t, false, nil
+	}
+
+	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s (tzid: %s)", value, tzid)
 }
 
 // mapTimeZone provides common time zone ID mappings for CalDAV/iCalendar compatibility
 func mapTimeZone(tzid string) *time.Location {
+	// Handle empty timezone
+	if tzid == "" {
+		return nil
+	}
+
+	// Try loading the timezone directly first (for IANA standard names)
+	if loc, err := time.LoadLocation(tzid); err == nil {
+		return loc
+	}
+
 	// Common mappings for Microsoft Exchange and other systems
 	commonMappings := map[string]string{
-		"Eastern Standard Time":         "America/New_York",
-		"Central Standard Time":         "America/Chicago",
-		"Mountain Standard Time":        "America/Denver",
-		"Pacific Standard Time":         "America/Los_Angeles",
-		"GMT Standard Time":             "Europe/London",
-		"Central European Standard Time": "Europe/Berlin",
-		"Tokyo Standard Time":           "Asia/Tokyo",
-		"China Standard Time":           "Asia/Shanghai",
-		"India Standard Time":           "Asia/Kolkata",
-		"Australian Eastern Standard Time": "Australia/Sydney",
-		// Add more mappings as needed
+		// Microsoft Exchange Standard Time Names
+		"Eastern Standard Time":                "America/New_York",
+		"Eastern Daylight Time":               "America/New_York",
+		"Central Standard Time":               "America/Chicago",
+		"Central Daylight Time":               "America/Chicago",
+		"Mountain Standard Time":              "America/Denver",
+		"Mountain Daylight Time":              "America/Denver",
+		"Pacific Standard Time":               "America/Los_Angeles",
+		"Pacific Daylight Time":               "America/Los_Angeles",
+		"GMT Standard Time":                   "Europe/London",
+		"Greenwich Standard Time":             "Europe/London",
+		"W. Europe Standard Time":             "Europe/Berlin",
+		"Central European Standard Time":      "Europe/Berlin",
+		"Central European Summer Time":        "Europe/Berlin",
+		"E. Europe Standard Time":             "Europe/Bucharest",
+		"Tokyo Standard Time":                 "Asia/Tokyo",
+		"China Standard Time":                 "Asia/Shanghai",
+		"India Standard Time":                 "Asia/Kolkata",
+		"AUS Eastern Standard Time":           "Australia/Sydney",
+		"Australian Eastern Standard Time":    "Australia/Sydney",
+		"AUS Central Standard Time":           "Australia/Adelaide",
+		"AUS Western Standard Time":           "Australia/Perth",
+		// Common abbreviations
+		"EST":                                 "America/New_York",
+		"EDT":                                 "America/New_York",
+		"CST":                                 "America/Chicago",
+		"CDT":                                 "America/Chicago",
+		"MST":                                 "America/Denver",
+		"MDT":                                 "America/Denver",
+		"PST":                                 "America/Los_Angeles",
+		"PDT":                                 "America/Los_Angeles",
+		"UTC":                                 "UTC",
+		"GMT":                                 "UTC",
+		"CET":                                 "Europe/Berlin",
+		"CEST":                                "Europe/Berlin",
+		"JST":                                 "Asia/Tokyo",
+		"AEST":                                "Australia/Sydney",
+		"AEDT":                                "Australia/Sydney",
+		// Additional common formats
+		"(UTC-05:00) Eastern Time (US & Canada)": "America/New_York",
+		"(UTC-06:00) Central Time (US & Canada)": "America/Chicago",
+		"(UTC-07:00) Mountain Time (US & Canada)": "America/Denver",
+		"(UTC-08:00) Pacific Time (US & Canada)": "America/Los_Angeles",
+		"(UTC+00:00) Dublin, Edinburgh, Lisbon, London": "Europe/London",
+		"(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna": "Europe/Berlin",
+		"(UTC+09:00) Osaka, Sapporo, Tokyo": "Asia/Tokyo",
 	}
 
 	if iana, exists := commonMappings[tzid]; exists {
 		if loc, err := time.LoadLocation(iana); err == nil {
 			return loc
+		}
+	}
+
+	// Try common timezone name variations
+	variations := []string{
+		// Remove common suffixes
+		strings.ReplaceAll(tzid, " Standard Time", ""),
+		strings.ReplaceAll(tzid, " Daylight Time", ""),
+		strings.ReplaceAll(tzid, " Summer Time", ""),
+		// Replace spaces with underscores (common variation)
+		strings.ReplaceAll(tzid, " ", "_"),
+	}
+
+	for _, variation := range variations {
+		if variation != tzid && variation != "" {
+			if loc, err := time.LoadLocation(variation); err == nil {
+				return loc
+			}
 		}
 	}
 

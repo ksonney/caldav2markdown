@@ -116,7 +116,7 @@ func TestConvertAllDayEvent(t *testing.T) {
 		t.Error("End time should be automatically set for all-day events")
 	}
 
-	expectedStart := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	expectedStart := time.Date(2024, 6, 1, 0, 0, 0, 0, time.Local)
 	// All-day events should end at 23:59:59 of the same day
 	expectedEnd := expectedStart.Add(24*time.Hour - time.Second)
 

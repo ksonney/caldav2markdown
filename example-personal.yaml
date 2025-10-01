@@ -7,6 +7,10 @@ output: ./my-calendars
 start_date: 2024-01-01T00:00:00Z
 end_date: 2024-12-31T23:59:59Z
 
+# Database Settings
+use_database: true
+database_path: ~/.config/caldav2markdown/personal-calendar.db
+
 # Personal preference settings
 use_due_date_emoji: true      # I like emojis in my notes
 use_hashtags: true            # For easy searching

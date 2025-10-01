@@ -71,22 +71,28 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **`pkg/config/config.go`**: Configuration management supporting both environment files and CLI flags, with multi-calendar and OAuth options
 - **`pkg/rrule/rrule.go`**: Recurrence rule (RRULE) parsing and recurring event expansion engine
 - **`pkg/oauth/client.go`**: Google OAuth 2.0 client implementation for CalDAV authentication
+- **`pkg/database/database.go`**: SQLite database implementation for event/todo storage and deduplication tracking
+- **`pkg/database/events.go`**: Event database operations including upsert, retrieval, and querying
+- **`pkg/database/todos.go`**: Todo database operations including upsert, retrieval, and querying
+- **`pkg/database/convert.go`**: Conversion helpers between iCalendar objects and database structs
 
 ### Data Flow
 
-1. **Configuration**: Load from `.env` file or CLI flags (CalDAV URL, credentials, OAuth settings, multi-calendar options, output directory, date range)
-2. **Authentication**: OAuth 2.0 flow for Google Calendar or basic authentication for other CalDAV servers
-3. **Calendar Discovery** (optional): Use PROPFIND requests to discover all calendar collections on the server
-4. **CalDAV Fetching**:
+1. **Configuration**: Load from `.env` file or CLI flags (CalDAV URL, credentials, OAuth settings, multi-calendar options, output directory, date range, database settings)
+2. **Database Initialization** (optional): Open SQLite database for event/todo tracking and deduplication
+3. **Authentication**: OAuth 2.0 flow for Google Calendar or basic authentication for other CalDAV servers
+4. **Calendar Discovery** (optional): Use PROPFIND requests to discover all calendar collections on the server
+5. **CalDAV Fetching**:
    - **Server-side filtering**: Use CalDAV REPORT queries with time-range filters (preferred for performance)
    - **Client-side filtering**: Fallback to reading all `.ics` files and filtering locally
    - **Multi-calendar**: Process multiple calendars with individual filtering and global deduplication
-5. **Processing**:
+6. **Processing**:
    - Extract VEVENT items (filtered by configurable date range)
    - Expand recurring events using RRULE parsing
    - Extract VTODO items with category and status information
+   - **Database Storage** (optional): Store events/todos in database with UID-based deduplication tracking
    - Global UID-based deduplication across all calendars and expanded instances
-6. **Output Generation**:
+7. **Output Generation**:
    - Daily aggregated markdown files: `YYYY-MM-DD.md` containing all events and tasks with due dates
    - Separate `todo.md` file for tasks without due dates with intelligent merging
    - Optional YAML frontmatter with metadata (date, event counts, categories, etc.) supporting custom field preservation
@@ -208,6 +214,7 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 
 - `github.com/arran4/golang-ical`: iCalendar parsing and component handling
 - `github.com/studio-b12/gowebdav`: WebDAV/CalDAV client for basic authentication and file operations
+- `github.com/mattn/go-sqlite3`: SQLite database driver for event/todo storage and tracking
 - `golang.org/x/oauth2`: OAuth 2.0 client implementation with Google provider support
 - `gopkg.in/yaml.v3`: YAML marshaling for frontmatter generation
 
@@ -970,3 +977,376 @@ bin/caldav2markdown -config config         # Auto-detects based on content
 3. **Validate**: Test the YAML configuration with your setup
 4. **Switch**: Update your workflows to use the YAML file
 5. **Maintain**: Use YAML for new configurations going forward
+
+## Database Storage and Deduplication
+
+The application includes optional SQLite database support for persistent event/todo storage and advanced deduplication tracking.
+
+### Features
+
+#### Event and Todo Storage
+- **Persistent Storage**: All events and todos are stored in a SQLite database with full metadata
+- **UID-based Deduplication**: Events and todos are deduplicated by UID across all sources and calendar runs
+- **Recurrence Tracking**: Each recurring event instance is stored separately with its recurrence ID
+- **Source Attribution**: Track which calendar source each event/todo came from
+- **First/Last Seen Timestamps**: Monitor when events were first discovered and last updated
+
+#### Query and Analysis
+- **Date Range Queries**: Retrieve events within specific date ranges
+- **Calendar Filtering**: Filter events/todos by source calendar
+- **Status Tracking**: Track completion status of todos
+- **Priority Filtering**: Query todos by priority level
+- **Full-Text Search**: Search events and todos by summary or description
+- **Statistics**: View detailed statistics about stored events and todos
+
+### Configuration
+
+#### Environment File Configuration
+```bash
+# Enable database storage
+USE_DATABASE=true
+
+# Optional: Specify custom database path
+# Default: placed alongside config file as caldav2markdown.db
+DATABASE_PATH=/path/to/custom/database.db
+
+# Rest of your configuration...
+CALDAV_URL=https://your-calendar-server.com/caldav/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OUTPUT_DIR=./calendar-notes
+```
+
+#### YAML Configuration
+```yaml
+---
+# Enable database storage
+use_database: true
+
+# Optional: Custom database path
+database_path: /path/to/custom/database.db
+
+# Rest of your configuration...
+output: ./calendar-notes
+sources:
+  - type: caldav
+    name: My Calendar
+    caldav:
+      url: https://your-calendar-server.com/caldav/
+      username: username
+      password: password
+```
+
+#### CLI Flags
+```bash
+# Enable database with default path
+bin/caldav2markdown -use-database -config .env
+
+# Specify custom database path
+bin/caldav2markdown -use-database -database-path /path/to/db.db -config .env
+
+# View database statistics
+bin/caldav2markdown -use-database -db-stats -config .env
+
+# Clear database (with confirmation)
+bin/caldav2markdown -use-database -db-clear -config .env
+```
+
+### Database Location
+
+By default, the database file is created alongside your configuration file:
+- Config at `~/.config/caldav2markdown/config.yaml` → Database at `~/.config/caldav2markdown/caldav2markdown.db`
+- Config at `.env` → Database at `./caldav2markdown.db`
+- Custom config at `/etc/caldav/config.env` → Database at `/etc/caldav/caldav2markdown.db`
+
+### Database Schema
+
+#### Events Table
+- **Primary Key**: Auto-incrementing ID
+- **Unique Constraint**: (UID, RecurrenceID, SourceName)
+- **Indexed Fields**: UID, StartTime, SourceName
+- **Stored Fields**: Summary, Description, Location, StartTime, EndTime, AllDay, Calendar, Status, Categories, Source info, Timestamps
+
+#### Todos Table
+- **Primary Key**: Auto-incrementing ID
+- **Unique Constraint**: (UID, SourceName)
+- **Indexed Fields**: UID, DueDate, SourceName
+- **Stored Fields**: Summary, Description, DueDate, StartDate, Completed, Priority, Status, Categories, Calendar, Source info, Timestamps
+
+#### Metadata Table
+- **Purpose**: Store application metadata like last sync times
+- **Schema**: Key-value pairs with timestamps
+
+### Usage Examples
+
+#### Basic Usage with Database
+```bash
+# First run - creates database and stores all events
+bin/caldav2markdown -use-database -config config.yaml
+# Output: Database: 150 new events, 0 updated events, 25 new todos, 0 updated todos
+
+# Subsequent runs - events already in database are updated, duplicates prevented
+bin/caldav2markdown -use-database -config config.yaml
+# Output: Database: 3 new events, 147 updated events, 1 new todos, 24 updated todos
+```
+
+**How Deduplication and Change Tracking Works:**
+1. **Fetch calendars**: Events/todos are fetched from all configured sources
+2. **Store in database**: Each event/todo is stored with UID-based deduplication
+   - **New items**: Inserted with `first_seen` timestamp
+   - **Existing items**: Compared field-by-field to detect changes
+   - **Changed items**: Updated with new values and `last_seen` timestamp
+   - **Unchanged items**: Only `last_seen` timestamp updated
+3. **Change detection**: Automatically detects modifications to:
+   - **Events**: summary, description, location, start time, end time, all-day status, calendar, status, categories
+   - **Todos**: summary, description, due date, start date, completed status, priority, status, categories, calendar
+4. **Generate markdown**: All items (new and updated) are converted to markdown
+5. **Smart merging**: Markdown files are intelligently merged, preventing duplicates
+
+**Key Benefits:**
+- Tracks when events first appeared (`first_seen`)
+- Tracks when events were last seen (`last_seen`)
+- **Detects and reports changes** automatically
+- Prevents duplicate markdown entries
+- Maintains full history in database
+- Shows exactly what changed in each update
+
+#### Change Detection Example
+```bash
+# First run - create initial entries
+$ bin/caldav2markdown -use-database -config config.yaml
+Storing events and todos in database...
+Database: 150 new events, 0 updated events, 25 new todos, 0 updated todos
+
+# User modifies event time and description in calendar
+
+# Second run - detects changes
+$ bin/caldav2markdown -use-database -config config.yaml
+Storing events and todos in database...
+Changes detected: 3 events modified, 1 todos modified
+Database: 0 new events, 150 updated events, 0 new todos, 25 updated todos
+```
+
+**What Gets Detected:**
+- Event/todo moved to different time
+- Summary/title changes
+- Description updates
+- Location changes
+- Status changes (confirmed, cancelled, tentative)
+- Priority changes (for todos)
+- Completion status changes (for todos)
+- Category/tag modifications
+
+**When to Use:**
+- **Calendar sync**: Automatically track changes from calendar servers
+- **Collaboration**: See what team members changed in shared calendars
+- **Audit trail**: Maintain history of all event modifications
+- **Data integrity**: Ensure your markdown reflects latest calendar state
+
+#### Smart Markdown Updates
+
+When database is enabled, only new or changed items generate markdown:
+
+```bash
+# First run - all items are new
+$ bin/caldav2markdown -use-database -config config.yaml
+Database: 150 new events, 0 updated events, 25 new todos, 0 updated todos
+Generating markdown for 150 new/changed events and 25 new/changed todos
+Successfully created 45 daily files for 150 events and 25 tasks
+
+# Second run - no changes
+$ bin/caldav2markdown -use-database -config config.yaml
+Database: 0 new events, 150 updated events, 0 new todos, 25 updated todos
+No new or changed items - skipping markdown generation
+Successfully processed 0 events and 0 tasks (all unchanged)
+
+# Third run - 3 events changed
+$ bin/caldav2markdown -use-database -config config.yaml
+Changes detected: 3 events modified, 0 todos modified
+Database: 0 new events, 150 updated events, 0 new todos, 25 updated todos
+Generating markdown for 3 new/changed events and 0 new/changed todos
+Successfully created 3 daily files for 3 events and 0 tasks
+```
+
+**Benefits:**
+- **No duplicate processing**: Unchanged events never regenerate markdown
+- **Faster runs**: Only process items that actually changed
+- **Bandwidth savings**: Database tracks everything, markdown only shows changes
+- **Clean updates**: Only modified items trigger file updates
+
+#### View Database Statistics
+```bash
+$ bin/caldav2markdown -use-database -db-stats -config config.yaml
+
+Database Statistics:
+  Total events: 1250
+  Unique events: 475
+  Total todos: 83
+  Unique todos: 67
+
+  Events by source:
+    Work Calendar: 687
+    Personal Calendar: 428
+    Family Events: 135
+
+  Todos by source:
+    Work Tasks: 45
+    Personal Tasks: 38
+```
+
+#### Clear Database
+```bash
+$ bin/caldav2markdown -use-database -db-clear -config config.yaml
+Are you sure you want to clear all database data? (yes/no): yes
+Database cleared successfully.
+```
+
+#### Generate Markdown from Database
+```bash
+# Fetch calendars and store in database (normal run)
+bin/caldav2markdown -use-database -config config.yaml
+
+# Later: regenerate markdown files from database without fetching calendars
+# Useful for:
+#  - Changing output format options (hashtags, frontmatter, etc.)
+#  - Regenerating with different date ranges
+#  - Offline markdown generation
+#  - Testing different formatting options
+bin/caldav2markdown -use-database -from-database -config config.yaml
+
+# Generate markdown from database with different date range
+bin/caldav2markdown -use-database -from-database \
+  -start 2025-01-01 -end 2025-12-31 \
+  -config config.yaml
+
+# Generate with different formatting options
+bin/caldav2markdown -use-database -from-database \
+  -frontmatter -hashtags -event-checkboxes \
+  -config config.yaml
+```
+
+**Benefits of Database Generation:**
+- **No Network Calls**: Generate markdown instantly without hitting calendar servers
+- **Experimenting with Formats**: Try different output formats without refetching data
+- **Offline Operation**: Work offline with your calendar data
+- **Performance**: Much faster than fetching from remote calendars
+- **Consistency**: Same data, different presentations
+
+**Workflow Example:**
+```bash
+# Daily: fetch and update database
+0 */6 * * * /usr/local/bin/caldav2markdown -use-database -config ~/config.yaml
+
+# As needed: regenerate markdown with new formatting
+bin/caldav2markdown -use-database -from-database -obsidian-tasks -config ~/config.yaml
+```
+
+### How Deduplication Works
+
+#### Event Deduplication
+1. **UID Matching**: Events with the same UID from the same source are considered duplicates
+2. **Recurrence Handling**: Each recurring event instance has a unique recurrence ID, preventing over-deduplication
+3. **Cross-Source**: Events from different sources with the same UID are stored separately (different calendar sources may have different event details)
+4. **Update Detection**: When an event is seen again, it's updated with latest details and last_seen timestamp is refreshed
+
+#### Todo Deduplication
+1. **UID Matching**: Todos with the same UID from the same source are considered duplicates
+2. **Status Updates**: When a todo's completion status changes, the database record is updated
+3. **Cross-Source**: Similar to events, todos from different sources are tracked separately
+
+### Database Benefits
+
+#### Performance
+- **Faster Subsequent Runs**: Only new or modified events need processing
+- **Reduced API Calls**: Can compare local cache against remote calendars
+- **Incremental Updates**: No need to re-process entire calendar history each run
+
+#### Data Management
+- **Historical Tracking**: See when events first appeared and when they were last updated
+- **Source Auditing**: Track which calendar source provided each event
+- **Duplicate Analysis**: Identify and resolve duplicate events across calendars
+- **Data Export**: Export full event/todo history as JSON for backup or analysis
+
+#### Advanced Features (Future)
+- **Sync Detection**: Detect deleted events by comparing database with calendar fetches
+- **Change History**: Track how event details change over time
+- **Conflict Resolution**: Identify conflicting events across calendars
+- **Smart Filtering**: Use database queries for complex filtering scenarios
+
+### Database Maintenance
+
+#### Backup
+```bash
+# Simple file copy
+cp ~/.config/caldav2markdown/caldav2markdown.db ~/backups/calendar-backup.db
+
+# Or use sqlite3 backup command
+sqlite3 ~/.config/caldav2markdown/caldav2markdown.db ".backup ~/backups/calendar-backup.db"
+```
+
+#### Vacuum/Optimize
+```bash
+# Optimize database (removes deleted records, rebuilds indexes)
+sqlite3 ~/.config/caldav2markdown/caldav2markdown.db "VACUUM"
+```
+
+#### Export Data
+```bash
+# Export events to JSON
+sqlite3 -json ~/.config/caldav2markdown/caldav2markdown.db "SELECT * FROM events" > events.json
+
+# Export todos to JSON
+sqlite3 -json ~/.config/caldav2markdown/caldav2markdown.db "SELECT * FROM todos" > todos.json
+```
+
+### Technical Details
+
+#### Database Engine
+- **SQLite 3**: Embedded, serverless, zero-configuration
+- **WAL Mode**: Write-Ahead Logging for better concurrent access
+- **Foreign Keys**: Enabled for referential integrity
+
+#### Transaction Handling
+- Bulk inserts use transactions for performance
+- Each upsert is atomic
+- Database is properly closed on application exit
+
+#### Concurrent Access
+- WAL mode allows multiple readers
+- Single writer at a time (safe for cron jobs)
+- Lock timeouts handled gracefully
+
+### Troubleshooting
+
+#### Database Locked Error
+```bash
+# If you see "database is locked" errors:
+# 1. Ensure no other caldav2markdown processes are running
+ps aux | grep caldav2markdown
+
+# 2. Check for stale lock files
+ls -la ~/.config/caldav2markdown/
+
+# 3. If necessary, remove WAL files (when no processes running)
+rm ~/.config/caldav2markdown/caldav2markdown.db-wal
+rm ~/.config/caldav2markdown/caldav2markdown.db-shm
+```
+
+#### Corrupted Database
+```bash
+# Check database integrity
+sqlite3 ~/.config/caldav2markdown/caldav2markdown.db "PRAGMA integrity_check"
+
+# If corrupted, restore from backup or clear and rebuild
+bin/caldav2markdown -use-database -db-clear -config config.yaml
+```
+
+#### Migration from Non-Database Setup
+```bash
+# Simply enable database on your next run
+# All events will be stored going forward
+bin/caldav2markdown -use-database -config config.yaml
+
+# Database will be populated with all current events/todos
+# Subsequent runs will use the database for deduplication
+```

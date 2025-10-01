@@ -5,6 +5,7 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 ## 🆕 Recent Updates
 
 ### Latest Enhancements (2025)
+- **💾 SQLite Database Storage**: Optional database for event/todo tracking, deduplication, and change detection with smart markdown updates
 - **🚫 Ignore Declined Events**: Automatically skip events you've declined (STATUS=CANCELLED or PARTSTAT=DECLINED) to keep your calendar clean
 - **🎯 Obsidian Tasks Emoji Format**: Added support for Obsidian Tasks emoji format with 🛫 for start times and ✅ for end times
 - **🔧 Fixed Autodiscovery**: Resolved configuration validation issue that prevented autodiscovery from working without explicit SOURCE_MODE setting
@@ -35,6 +36,8 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 - **Secure Token Storage**: OAuth tokens stored securely with automatic refresh
 
 ### 🚀 Performance & Scalability
+- **SQLite Database Storage**: Optional database for event/todo tracking with change detection
+- **Smart Markdown Updates**: Only process new or changed items, skip unchanged entries
 - **Server-side Filtering**: CalDAV REPORT queries for efficient data retrieval
 - **Multi-calendar Support**: Discover and process multiple calendars automatically
 - **Smart Deduplication**: Global UID-based deduplication across all calendars
@@ -196,12 +199,17 @@ USE_OBSIDIAN_EMOJIS=false
 START_DATE=2024-01-01
 END_DATE=2025-12-31
 
+# Database Storage (optional)
+USE_DATABASE=true
+DATABASE_PATH=~/.config/caldav2markdown/calendar.db
+
 # Performance and Multi-Calendar
 USE_SERVER_SIDE_FILTERING=true
 DISCOVER_CALENDARS=true
 INCLUDE_CALENDARS=Work,Personal
 EXCLUDE_CALENDARS=Archive,Spam
 CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work,Google Calendar:GCal
+
 # Proxy Configuration (optional, for corporate environments)
 PROXY_URL=http://proxy.company.com:8080
 PROXY_USERNAME=proxy_user
@@ -379,6 +387,13 @@ bin/caldav2markdown -test
 - `-client-id`: Google OAuth Client ID
 - `-client-secret`: Google OAuth Client Secret
 
+**Database Options:**
+- `-use-database`: Enable SQLite database for storage and change tracking
+- `-database-path`: Path to SQLite database file (default: same directory as config)
+- `-from-database`: Generate markdown from database instead of fetching from calendar
+- `-db-stats`: Show database statistics and exit
+- `-db-clear`: Clear all data from database and exit
+
 #### Complete Flag Reference
 
 ```bash
@@ -390,6 +405,7 @@ bin/caldav2markdown \
   -config ".env" \
   -start "2024-01-01" -end "2024-12-31" \
   -emoji -hashtags -frontmatter -ignore-descriptions -event-checkboxes \
+  -use-database -database-path "./calendar.db" \
   -server-side-filtering \
   -discover-calendars \
   -include-calendars "Work,Personal" \
@@ -715,6 +731,163 @@ Result: All Monday meetings in June 2024 are included, even though the original 
 ```
 
 This fix ensures comprehensive calendar processing without missing important recurring items.
+
+## Database Storage and Change Tracking
+
+### Overview
+
+The application includes optional SQLite database storage for event and todo tracking, providing smart deduplication and change detection capabilities.
+
+### Database Features
+
+- **Event and Todo Storage**: All calendar items are stored with complete metadata
+- **Change Detection**: Tracks which fields changed between calendar fetches
+- **Smart Markdown Updates**: Only generates markdown for new or changed items
+- **Historical Tracking**: Records first_seen and last_seen timestamps
+- **UID-based Deduplication**: Prevents duplicate entries across multiple sources
+- **Statistics**: View comprehensive database statistics
+
+### Configuration
+
+**Environment File**:
+```env
+USE_DATABASE=true
+DATABASE_PATH=~/.config/caldav2markdown/calendar.db
+```
+
+**YAML Configuration**:
+```yaml
+use_database: true
+database_path: ~/.config/caldav2markdown/calendar.db
+```
+
+**Command Line**:
+```bash
+bin/caldav2markdown -use-database -database-path ~/.config/caldav2markdown/calendar.db
+```
+
+### Usage Examples
+
+#### Basic Database Usage
+
+```bash
+# First run - all items are new
+bin/caldav2markdown -use-database -config config.yaml
+Fetching events from CalDAV server...
+Storing events and todos in database...
+Database: 150 new events, 0 updated events, 25 new todos, 0 updated todos
+Generating markdown for 150 new/changed events and 25 new/changed todos
+Successfully created 45 daily files for 150 events and 25 tasks
+
+# Second run - no changes
+bin/caldav2markdown -use-database -config config.yaml
+Fetching events from CalDAV server...
+Storing events and todos in database...
+Database: 0 new events, 150 updated events, 0 new todos, 25 updated todos
+No new or changed items - skipping markdown generation
+Successfully processed 0 events and 0 tasks (all unchanged)
+
+# Third run - 3 events changed
+bin/caldav2markdown -use-database -config config.yaml
+Fetching events from CalDAV server...
+Storing events and todos in database...
+Changes detected: 3 events modified, 0 todos modified
+Database: 0 new events, 150 updated events, 0 new todos, 25 updated todos
+Generating markdown for 3 new/changed events and 0 new/changed todos
+Successfully created 3 daily files for 3 events and 0 tasks
+```
+
+#### Generate Markdown from Database
+
+Instead of fetching from the calendar server, generate markdown from stored database records:
+
+```bash
+# Generate markdown from database (no calendar fetch)
+bin/caldav2markdown -use-database -from-database -config config.yaml
+
+# With date filtering
+bin/caldav2markdown -use-database -from-database -start 2024-06-01 -end 2024-06-30
+```
+
+#### Database Statistics
+
+View comprehensive statistics about stored events and todos:
+
+```bash
+bin/caldav2markdown -use-database -db-stats -config config.yaml
+
+Database Statistics:
+  Total events: 1250
+  Unique events: 475
+  Total todos: 83
+  Unique todos: 67
+
+  Events by source:
+    Work Calendar: 687
+    Personal Calendar: 428
+    Family Events: 135
+
+  Todos by source:
+    Work Tasks: 45
+    Personal Tasks: 38
+```
+
+#### Clear Database
+
+Remove all stored events and todos:
+
+```bash
+bin/caldav2markdown -use-database -db-clear -config config.yaml
+Database cleared successfully
+```
+
+### Change Detection
+
+The database tracks changes to individual fields, providing detailed change information:
+
+**Tracked Event Fields**:
+- Summary (title)
+- Description
+- Location
+- Start time
+- End time
+- All-day flag
+- Status
+- Categories
+
+**Tracked Todo Fields**:
+- Summary (title)
+- Description
+- Due date
+- Priority
+- Status
+- Categories
+
+**Example Change Report**:
+```
+Changes detected:
+  Event "Team Meeting" modified: summary, location, start_time
+  Todo "Submit Report" modified: due_date, priority
+```
+
+### Benefits
+
+- **No Duplicate Processing**: Unchanged events never regenerate markdown
+- **Faster Runs**: Only process items that actually changed
+- **Bandwidth Savings**: Database tracks everything, markdown only shows changes
+- **Historical Tracking**: Know when events were first seen and last updated
+- **Offline Generation**: Generate markdown from database without fetching from server
+- **Statistics and Reporting**: Comprehensive database statistics
+
+### Database Location
+
+The database file is stored in the location specified by `DATABASE_PATH`:
+
+- **Default**: Same directory as config file, named `calendar.db`
+- **XDG Config**: `~/.config/caldav2markdown/calendar.db` when using XDG paths
+- **Custom**: Any path specified in configuration or via `-database-path` flag
+
+The database uses SQLite's WAL (Write-Ahead Logging) mode for better concurrent access performance.
 
 ## Development
 

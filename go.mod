@@ -9,6 +9,7 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
+	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/oauth2 v0.31.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

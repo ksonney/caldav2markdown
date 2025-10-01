@@ -93,6 +93,7 @@ bin/caldav2markdown -config my-config.yaml
 ### Global Settings
 - Output directory configuration
 - Date range filtering
+- Database storage and change tracking
 - Display options (emojis, hashtags, frontmatter, checkboxes)
 - Obsidian tasks preset
 - Debug logging
@@ -124,15 +125,20 @@ bin/caldav2markdown -config my-config.yaml
 5. **Limit OAuth scopes** to calendar read-only access
 
 ### Performance Optimization
-1. **Enable server-side filtering** when supported:
+1. **Enable database storage** for smart updates:
+   ```yaml
+   use_database: true
+   database_path: ~/.config/caldav2markdown/calendar.db
+   ```
+2. **Enable server-side filtering** when supported:
    ```yaml
    use_server_side_filtering: true
    ```
-2. **Use specific calendar filters** instead of processing everything:
+3. **Use specific calendar filters** instead of processing everything:
    ```yaml
    include_calendars: ["Work", "Personal"]
    ```
-3. **Set appropriate timeouts** for network requests:
+4. **Set appropriate timeouts** for network requests:
    ```yaml
    timeout: 30s  # Reasonable default
    ```

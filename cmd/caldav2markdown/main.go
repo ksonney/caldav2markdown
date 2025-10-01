@@ -12,6 +12,7 @@ import (
 	ics "github.com/arran4/golang-ical"
 	"caldav2markdown/pkg/caldav"
 	"caldav2markdown/pkg/config"
+	"caldav2markdown/pkg/database"
 	icsource "caldav2markdown/pkg/ics"
 	"caldav2markdown/pkg/markdown"
 )
@@ -98,6 +99,12 @@ func main() {
 		// YAML conversion flags
 		convertToYAML          = flag.String("convert-to-yaml", "", "Convert env config file to YAML format and save to specified path")
 		exportYAML             = flag.String("export-yaml", "", "Export current configuration to YAML file")
+		// Database flags
+		useDatabase            = flag.Bool("use-database", false, "Enable SQLite database for deduplication and tracking")
+		databasePath           = flag.String("database-path", "", "Path to SQLite database file (default: alongside config file)")
+		dbStats                = flag.Bool("db-stats", false, "Show database statistics and exit")
+		dbClear                = flag.Bool("db-clear", false, "Clear all data from database and exit")
+		fromDatabase           = flag.Bool("from-database", false, "Generate markdown from database instead of fetching from calendars")
 	)
 	flag.Parse()
 
@@ -216,6 +223,20 @@ func main() {
 		cfg.ProxyPassword = *proxyPassword
 	}
 
+	// Handle database flags
+	if *useDatabase {
+		cfg.UseDatabase = true
+	}
+	if *databasePath != "" {
+		cfg.DatabasePath = *databasePath
+	}
+	// Set default database path if not specified but database is enabled
+	if cfg.UseDatabase && cfg.DatabasePath == "" {
+		// Place database alongside config file
+		configDir := filepath.Dir(*configFile)
+		cfg.DatabasePath = filepath.Join(configDir, "caldav2markdown.db")
+	}
+
 	// Handle ICS flags
 	if *sourceMode != "" {
 		switch strings.ToLower(*sourceMode) {
@@ -329,6 +350,13 @@ func main() {
 		fmt.Println("    -ics-password     Password for basic auth")
 		fmt.Println("    -ics-token        Bearer token for bearer auth")
 		fmt.Println("")
+		fmt.Println("Database Options:")
+		fmt.Println("  -use-database     Enable SQLite database for deduplication")
+		fmt.Println("  -database-path    Path to SQLite database (default: alongside config file)")
+		fmt.Println("  -from-database    Generate markdown from database instead of fetching calendars")
+		fmt.Println("  -db-stats         Show database statistics and exit")
+		fmt.Println("  -db-clear         Clear all database data and exit")
+		fmt.Println("")
 		fmt.Println("Common Options:")
 		fmt.Println("  -output           Output directory for markdown files (default: ./events)")
 		fmt.Printf("  -config           Configuration file path (default: %s)\n", defaultConfigPath)
@@ -343,6 +371,74 @@ func main() {
 		fmt.Println("")
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Initialize database if enabled
+	var db *database.DB
+	if cfg.UseDatabase {
+		var err error
+		db, err = database.Open(cfg.DatabasePath)
+		if err != nil {
+			fmt.Printf("Error opening database: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		fmt.Printf("Using database: %s\n", cfg.DatabasePath)
+	}
+
+	// Handle database management commands
+	if *dbStats {
+		if db == nil {
+			fmt.Println("Database is not enabled. Use -use-database flag.")
+			os.Exit(1)
+		}
+		stats, err := db.GetStats()
+		if err != nil {
+			fmt.Printf("Error getting database stats: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Database Statistics:")
+		fmt.Printf("  Total events: %d\n", stats["events"])
+		fmt.Printf("  Unique events: %d\n", stats["unique_events"])
+		fmt.Printf("  Total todos: %d\n", stats["todos"])
+		fmt.Printf("  Unique todos: %d\n", stats["unique_todos"])
+
+		eventSources, err := db.CountEventsBySource()
+		if err == nil && len(eventSources) > 0 {
+			fmt.Println("\n  Events by source:")
+			for source, count := range eventSources {
+				fmt.Printf("    %s: %d\n", source, count)
+			}
+		}
+
+		todoSources, err := db.CountTodosBySource()
+		if err == nil && len(todoSources) > 0 {
+			fmt.Println("\n  Todos by source:")
+			for source, count := range todoSources {
+				fmt.Printf("    %s: %d\n", source, count)
+			}
+		}
+		return
+	}
+
+	if *dbClear {
+		if db == nil {
+			fmt.Println("Database is not enabled. Use -use-database flag.")
+			os.Exit(1)
+		}
+		fmt.Print("Are you sure you want to clear all database data? (yes/no): ")
+		var response string
+		fmt.Scanln(&response)
+		if strings.ToLower(response) == "yes" {
+			if err := db.Clear(); err != nil {
+				fmt.Printf("Error clearing database: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("Database cleared successfully.")
+		} else {
+			fmt.Println("Operation cancelled.")
+		}
+		return
 	}
 
 	// Create progress callback function
@@ -360,7 +456,19 @@ func main() {
 	var sourcedTodos []SourcedTodo
 	var duplicatesFound int
 
-	if cfg.HasMultipleSources() {
+	// Check if we should generate from database instead of fetching calendars
+	if *fromDatabase {
+		if db == nil {
+			fmt.Println("Error: -from-database requires -use-database to be enabled")
+			os.Exit(1)
+		}
+		fmt.Println("Generating markdown from database...")
+		if err := generateFromDatabase(db, cfg, &sourcedEvents, &sourcedTodos); err != nil {
+			fmt.Printf("Error generating from database: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Loaded %d events and %d todos from database\n", len(sourcedEvents), len(sourcedTodos))
+	} else if cfg.HasMultipleSources() {
 		// Multi-source processing
 		if err := processMultipleSources(cfg, progressCallback, *listCalendars, *testConn, &sourcedEvents, &sourcedTodos, &duplicatesFound); err != nil {
 			fmt.Printf("\nError: %v\n", err)
@@ -415,6 +523,28 @@ func main() {
 	if err := os.MkdirAll(cfg.Output, 0755); err != nil {
 		fmt.Printf("Failed to create output directory: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Store in database and filter to only new/changed items if database is enabled
+	var dbNewEvents, dbNewTodos, dbUpdatedEvents, dbUpdatedTodos int
+	if db != nil && !*fromDatabase {
+		fmt.Println("Storing events and todos in database...")
+		var newOrChangedEventUIDs, newOrChangedTodoUIDs map[string]bool
+		dbNewEvents, dbUpdatedEvents, dbNewTodos, dbUpdatedTodos, newOrChangedEventUIDs, newOrChangedTodoUIDs = storeInDatabaseAndTrackChanges(db, sourcedEvents, sourcedTodos)
+
+		// Filter to only new or changed items to prevent duplicate markdown
+		sourcedEvents, sourcedTodos = filterNewOrChanged(sourcedEvents, sourcedTodos, newOrChangedEventUIDs, newOrChangedTodoUIDs)
+
+		fmt.Printf("Database: %d new events, %d updated events, %d new todos, %d updated todos\n",
+			dbNewEvents, dbUpdatedEvents, dbNewTodos, dbUpdatedTodos)
+		if len(newOrChangedEventUIDs) > 0 || len(newOrChangedTodoUIDs) > 0 {
+			fmt.Printf("Generating markdown for %d new/changed events and %d new/changed todos\n",
+				len(newOrChangedEventUIDs), len(newOrChangedTodoUIDs))
+		} else {
+			fmt.Println("No new or changed items - skipping markdown generation")
+			fmt.Println("Successfully processed 0 events and 0 tasks (all unchanged)")
+			return
+		}
 	}
 
 	// Report what was found
@@ -825,4 +955,150 @@ func writeMarkdownFile(filename, content string) error {
 
 	_, err = file.WriteString(content)
 	return err
+}
+
+// generateFromDatabase loads events and todos from the database and converts them to sourced format
+func generateFromDatabase(db *database.DB, cfg *config.Config, sourcedEvents *[]SourcedEvent, sourcedTodos *[]SourcedTodo) error {
+	// Get events from database within date range
+	dbEvents, err := db.GetEventsForMarkdown(cfg.StartDate, cfg.EndDate)
+	if err != nil {
+		return fmt.Errorf("failed to get events from database: %w", err)
+	}
+
+	// Get todos from database
+	dbTodos, err := db.GetTodosForMarkdown(cfg.StartDate, cfg.EndDate)
+	if err != nil {
+		return fmt.Errorf("failed to get todos from database: %w", err)
+	}
+
+	// Convert database events to iCalendar events and add to sourced events
+	for _, dbEvent := range dbEvents {
+		icsEvent := dbEvent.ToICSEvent()
+		*sourcedEvents = append(*sourcedEvents, SourcedEvent{
+			Event:           icsEvent,
+			SourceName:      dbEvent.SourceName,
+			CalendarAliases: cfg.CalendarAliases,
+		})
+	}
+
+	// Convert database todos to iCalendar todos and add to sourced todos
+	for _, dbTodo := range dbTodos {
+		icsTodo := dbTodo.ToICSTodo()
+		*sourcedTodos = append(*sourcedTodos, SourcedTodo{
+			Todo:            icsTodo,
+			SourceName:      dbTodo.SourceName,
+			CalendarAliases: cfg.CalendarAliases,
+		})
+	}
+
+	return nil
+}
+
+// storeInDatabaseAndTrackChanges stores events/todos and tracks which ones are new or changed
+// Returns: newEvents, updatedEvents, newTodos, updatedTodos, newOrChangedEventUIDs, newOrChangedTodoUIDs
+func storeInDatabaseAndTrackChanges(db *database.DB, sourcedEvents []SourcedEvent, sourcedTodos []SourcedTodo) (int, int, int, int, map[string]bool, map[string]bool) {
+	var newEvents, updatedEvents, changedEvents, newTodos, updatedTodos, changedTodos int
+	newOrChangedEventUIDs := make(map[string]bool)
+	newOrChangedTodoUIDs := make(map[string]bool)
+
+	// Store events with change detection
+	for _, sourcedEvent := range sourcedEvents {
+		// Get calendar name from event or use source name
+		calendarName := sourcedEvent.SourceName
+		if calProp := sourcedEvent.Event.GetProperty(ics.ComponentProperty("X-CALENDAR-NAME")); calProp != nil {
+			calendarName = calProp.Value
+		}
+
+		isNew, changes, err := db.StoreEventWithChanges(sourcedEvent.Event, sourcedEvent.SourceName, "caldav", calendarName)
+		if err != nil {
+			fmt.Printf("Warning: failed to store event in database: %v\n", err)
+			continue
+		}
+
+		// Get event UID
+		uid := ""
+		if uidProp := sourcedEvent.Event.GetProperty(ics.ComponentPropertyUniqueId); uidProp != nil {
+			uid = uidProp.Value
+		}
+
+		if isNew {
+			newEvents++
+			newOrChangedEventUIDs[uid] = true
+		} else {
+			updatedEvents++
+			if changes != nil && changes.Changed {
+				changedEvents++
+				newOrChangedEventUIDs[uid] = true
+			}
+		}
+	}
+
+	// Store todos with change detection
+	for _, sourcedTodo := range sourcedTodos {
+		// Get calendar name from todo or use source name
+		calendarName := sourcedTodo.SourceName
+		if calProp := sourcedTodo.Todo.GetProperty(ics.ComponentProperty("X-CALENDAR-NAME")); calProp != nil {
+			calendarName = calProp.Value
+		}
+
+		isNew, changes, err := db.StoreTodoWithChanges(sourcedTodo.Todo, sourcedTodo.SourceName, "caldav", calendarName)
+		if err != nil {
+			fmt.Printf("Warning: failed to store todo in database: %v\n", err)
+			continue
+		}
+
+		// Get todo UID
+		uid := ""
+		if uidProp := sourcedTodo.Todo.GetProperty(ics.ComponentPropertyUniqueId); uidProp != nil {
+			uid = uidProp.Value
+		}
+
+		if isNew {
+			newTodos++
+			newOrChangedTodoUIDs[uid] = true
+		} else {
+			updatedTodos++
+			if changes != nil && changes.Changed {
+				changedTodos++
+				newOrChangedTodoUIDs[uid] = true
+			}
+		}
+	}
+
+	// Report changes if any
+	if changedEvents > 0 || changedTodos > 0 {
+		fmt.Printf("Changes detected: %d events modified, %d todos modified\n", changedEvents, changedTodos)
+	}
+
+	return newEvents, updatedEvents, newTodos, updatedTodos, newOrChangedEventUIDs, newOrChangedTodoUIDs
+}
+
+// filterNewOrChanged filters events/todos to only include new or changed items
+func filterNewOrChanged(sourcedEvents []SourcedEvent, sourcedTodos []SourcedTodo, eventUIDs, todoUIDs map[string]bool) ([]SourcedEvent, []SourcedTodo) {
+	var filteredEvents []SourcedEvent
+	var filteredTodos []SourcedTodo
+
+	// Filter events
+	for _, sourcedEvent := range sourcedEvents {
+		uid := ""
+		if uidProp := sourcedEvent.Event.GetProperty(ics.ComponentPropertyUniqueId); uidProp != nil {
+			uid = uidProp.Value
+		}
+		if eventUIDs[uid] {
+			filteredEvents = append(filteredEvents, sourcedEvent)
+		}
+	}
+
+	// Filter todos
+	for _, sourcedTodo := range sourcedTodos {
+		uid := ""
+		if uidProp := sourcedTodo.Todo.GetProperty(ics.ComponentPropertyUniqueId); uidProp != nil {
+			uid = uidProp.Value
+		}
+		if todoUIDs[uid] {
+			filteredTodos = append(filteredTodos, sourcedTodo)
+		}
+	}
+
+	return filteredEvents, filteredTodos
 }

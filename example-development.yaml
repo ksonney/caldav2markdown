@@ -6,6 +6,12 @@
 output: ./dev-test-calendars
 start_date: 2023-01-01T00:00:00Z  # Extended range for testing historical data
 end_date: 2026-12-31T23:59:59Z    # Extended future range
+
+# Database Settings (for testing change detection)
+use_database: true
+database_path: /tmp/dev-test-calendar.db
+
+# Display Settings
 use_frontmatter: true
 use_hashtags: true
 use_calendar_tags: true           # Essential for multi-environment testing

@@ -458,6 +458,11 @@ func (em EventMarkdown) ToListItemWithOptionsAndCalendarTags(useHashtags, ignore
 func (em EventMarkdown) ToListItemWithAllOptions(useHashtags, ignoreDescriptions, useCheckboxes, useCalendarTags, useObsidianEmojis bool) string {
 	var sb strings.Builder
 
+	// Add UID as HTML comment for deduplication and updates
+	if em.UID != "" {
+		sb.WriteString(fmt.Sprintf("<!-- uid:%s -->\n", em.UID))
+	}
+
 	// Choose prefix based on checkbox option and whether event is in the past
 	prefix := "-"
 	if useCheckboxes {
@@ -674,6 +679,11 @@ func (tm TodoMarkdown) ToMarkdownWithOptions(useDueDateEmoji, useHashtags, ignor
 // ToMarkdownWithOptionsAndCalendarTags returns task markdown with full option control
 func (tm TodoMarkdown) ToMarkdownWithOptionsAndCalendarTags(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags bool) string {
 	var sb strings.Builder
+
+	// Add UID as HTML comment for deduplication and updates
+	if tm.UID != "" {
+		sb.WriteString(fmt.Sprintf("<!-- uid:%s -->\n", tm.UID))
+	}
 
 	checkbox := "- [ ]"
 	if tm.Completed {
@@ -1029,7 +1039,8 @@ func deduplicate(items []string) []string {
 // smartDeduplicate compares items based on core content (without hashtags)
 // and keeps the version with the most complete hashtag information
 func smartDeduplicate(items []string) []string {
-	// Map core content to the best version (most hashtags)
+	// Map UIDs to the latest version, and core content to best version for non-UID items
+	uidVersions := make(map[string]string)
 	bestVersions := make(map[string]string)
 
 	for _, item := range items {
@@ -1038,18 +1049,24 @@ func smartDeduplicate(items []string) []string {
 			continue
 		}
 
-		// Extract core content without hashtags
-		coreContent := extractCoreContent(normalized)
-
-		// If we haven't seen this core content, or this version has more hashtags, keep it
-		if existing, exists := bestVersions[coreContent]; !exists || hasMoreCompleteHashtags(normalized, existing) {
-			bestVersions[coreContent] = normalized
+		// Extract UID if present
+		uid := extractUID(normalized)
+		if uid != "" {
+			// For UID-based items, always keep the latest version (last one wins)
+			uidVersions[uid] = normalized
+		} else {
+			// For non-UID items, use old logic (core content comparison)
+			coreContent := extractCoreContent(normalized)
+			if existing, exists := bestVersions[coreContent]; !exists || hasMoreCompleteHashtags(normalized, existing) {
+				bestVersions[coreContent] = normalized
+			}
 		}
 	}
 
-	// Convert map back to slice, preserving original order as much as possible
+	// Convert maps back to slice, preserving original order as much as possible
 	result := []string{}
-	seen := make(map[string]bool)
+	seenUIDs := make(map[string]bool)
+	seenContent := make(map[string]bool)
 
 	for _, item := range items {
 		normalized := strings.TrimSpace(item)
@@ -1057,16 +1074,36 @@ func smartDeduplicate(items []string) []string {
 			continue
 		}
 
-		coreContent := extractCoreContent(normalized)
-		bestVersion := bestVersions[coreContent]
-
-		if !seen[bestVersion] {
-			seen[bestVersion] = true
-			result = append(result, bestVersion)
+		uid := extractUID(normalized)
+		if uid != "" {
+			// UID-based deduplication - use latest version
+			if !seenUIDs[uid] {
+				seenUIDs[uid] = true
+				result = append(result, uidVersions[uid])
+			}
+		} else {
+			// Content-based deduplication - use best version
+			coreContent := extractCoreContent(normalized)
+			bestVersion := bestVersions[coreContent]
+			if !seenContent[bestVersion] {
+				seenContent[bestVersion] = true
+				result = append(result, bestVersion)
+			}
 		}
 	}
 
 	return result
+}
+
+// extractUID extracts the UID from an HTML comment in a markdown item
+// Format: <!-- uid:some-uid-value -->
+func extractUID(item string) string {
+	uidPattern := regexp.MustCompile(`<!--\s*uid:([^-\s][^\s]*?)\s*-->`)
+	matches := uidPattern.FindStringSubmatch(item)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
 }
 
 // extractCoreContent removes hashtags from the end of a markdown item to get core content

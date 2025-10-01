@@ -1098,7 +1098,7 @@ func smartDeduplicate(items []string) []string {
 // extractUID extracts the UID from an HTML comment in a markdown item
 // Format: <!-- uid:some-uid-value -->
 func extractUID(item string) string {
-	uidPattern := regexp.MustCompile(`<!--\s*uid:([^-\s][^\s]*?)\s*-->`)
+	uidPattern := regexp.MustCompile(`<!--\s*uid:(\S+?)\s*-->`)
 	matches := uidPattern.FindStringSubmatch(item)
 	if len(matches) > 1 {
 		return matches[1]
@@ -1169,11 +1169,34 @@ func updateSingleItemWithHashtags(item string, useHashtags, useCalendarTags bool
 		return item
 	}
 
+	// Split item into lines to handle UID comments separately
+	lines := strings.Split(item, "\n")
+
+	// Separate UID comment line from content lines
+	var uidComment string
+	var contentLines []string
+
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "<!--") && strings.Contains(line, "uid:") {
+			uidComment = line
+		} else if strings.TrimSpace(line) != "" {
+			contentLines = append(contentLines, line)
+		}
+	}
+
+	// If no content lines, return original item unchanged
+	if len(contentLines) == 0 {
+		return item
+	}
+
+	// Work with the main content line (first non-UID, non-empty line)
+	mainContent := contentLines[0]
+
 	// Pattern to match existing hashtags at the end of the line
 	hashtagPattern := regexp.MustCompile(`(\s+#[a-zA-Z0-9-]+)*\s*$`)
 
-	// Extract existing hashtags
-	matches := hashtagPattern.FindAllString(item, -1)
+	// Extract existing hashtags from the main content line only
+	matches := hashtagPattern.FindAllString(mainContent, -1)
 	var existingHashtags []string
 	for _, match := range matches {
 		tags := strings.Fields(match)
@@ -1208,7 +1231,7 @@ func updateSingleItemWithHashtags(item string, useHashtags, useCalendarTags bool
 	var calendarTag string
 	if useCalendarTags {
 		calendarPattern := regexp.MustCompile(`\[([^\]]+)\]`)
-		calendarMatches := calendarPattern.FindStringSubmatch(item)
+		calendarMatches := calendarPattern.FindStringSubmatch(mainContent)
 		if len(calendarMatches) > 1 {
 			calendarName := calendarMatches[1]
 			sanitizedCalendarName := sanitizeForHashtag(calendarName)
@@ -1235,18 +1258,35 @@ func updateSingleItemWithHashtags(item string, useHashtags, useCalendarTags bool
 		return item
 	}
 
-	// Remove existing hashtags from the end and add all hashtags (existing + new)
-	baseItem := hashtagPattern.ReplaceAllString(item, "")
-	baseItem = strings.TrimSpace(baseItem)
+	// Remove existing hashtags from the main content line and add all hashtags (existing + new)
+	baseContent := hashtagPattern.ReplaceAllString(mainContent, "")
+	baseContent = strings.TrimSpace(baseContent)
 
 	// Combine existing and new hashtags, then deduplicate
 	allHashtags := append(existingHashtags, newHashtags...)
 	allHashtags = deduplicateHashtags(allHashtags)
+
+	// Build the updated main content line with hashtags
+	updatedMainContent := baseContent
 	if len(allHashtags) > 0 {
-		return baseItem + " " + strings.Join(allHashtags, " ")
+		updatedMainContent = baseContent + " " + strings.Join(allHashtags, " ")
 	}
 
-	return baseItem
+	// Reconstruct the full item with UID comment preserved
+	var result strings.Builder
+	if uidComment != "" {
+		result.WriteString(uidComment)
+		result.WriteString("\n")
+	}
+	result.WriteString(updatedMainContent)
+
+	// Add any additional content lines (like descriptions)
+	for i := 1; i < len(contentLines); i++ {
+		result.WriteString("\n")
+		result.WriteString(contentLines[i])
+	}
+
+	return result.String()
 }
 
 // isInvalidHashtag checks if a hashtag should be filtered out

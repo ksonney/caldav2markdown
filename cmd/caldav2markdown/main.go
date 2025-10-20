@@ -76,6 +76,8 @@ func main() {
 		obsidianTasks          = flag.Bool("obsidian-tasks", false, "Enable Obsidian tasks preset (event checkboxes, ignore descriptions, frontmatter, emojis, hashtags)")
 		useObsidianEmojis      = flag.Bool("obsidian-emojis", false, "Use Obsidian Tasks emoji format for start/end times (🛫 for start, ✅ for end)")
 		useCalendarTags        = flag.Bool("calendar-tags", false, "Add calendar name tags to events and tasks")
+		singleFileOutput       = flag.Bool("single-file", false, "Generate a single markdown file instead of separate daily files")
+		singleFileName         = flag.String("single-file-name", "calendar.md", "Name of the single output file when using -single-file")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -185,6 +187,15 @@ func main() {
 	}
 	if *useCalendarTags {
 		cfg.UseCalendarTags = true
+	}
+	if *singleFileOutput {
+		cfg.SingleFileOutput = true
+	}
+	if *singleFileName != "calendar.md" {
+		cfg.SingleFileName = *singleFileName
+	}
+	if cfg.SingleFileName == "" {
+		cfg.SingleFileName = "calendar.md"
 	}
 	if *useServerSideFiltering {
 		cfg.UseServerSideFiltering = true
@@ -368,6 +379,8 @@ func main() {
 		fmt.Println("  -ignore-descriptions  Ignore event and task descriptions in output")
 		fmt.Println("  -event-checkboxes     Add checkboxes to events for task-like formatting")
 		fmt.Println("  -obsidian-tasks   Enable Obsidian preset (event checkboxes + ignore descriptions + frontmatter + emojis + hashtags)")
+		fmt.Println("  -single-file      Generate a single markdown file instead of separate daily files")
+		fmt.Println("  -single-file-name Name of the single output file (default: calendar.md)")
 		fmt.Println("")
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -586,6 +599,19 @@ func main() {
 		for _, sourcedTodo := range sourcedTodos {
 			todoMarkdowns = append(todoMarkdowns, markdown.ConvertTodoWithCalendar(sourcedTodo.Todo, sourcedTodo.SourceName, cfg.CalendarAliases))
 		}
+	}
+
+	// Generate output files - either single file or daily files
+	if cfg.SingleFileOutput {
+		fmt.Println("Generating single file output...")
+		outputPath := filepath.Join(cfg.Output, cfg.SingleFileName)
+		if err := markdown.GenerateSingleFile(outputPath, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+			fmt.Printf("\nFailed to generate single file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println() // New line after progress
+		fmt.Printf("Successfully created %s with %d events and %d tasks\n", outputPath, len(sourcedEvents), len(sourcedTodos))
+		return
 	}
 
 	// Generate daily aggregated files with both events and tasks

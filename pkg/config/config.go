@@ -91,6 +91,8 @@ type Config struct {
 	TraceWebCalls       bool              `yaml:"trace_web_calls"`
 	UseCalendarTags     bool              `yaml:"use_calendar_tags"`
 	CalendarAliases     map[string]string `yaml:"calendar_aliases"`
+	SingleFileOutput    bool              `yaml:"single_file_output"`
+	SingleFileName      string            `yaml:"single_file_name"`
 
 	// Multi-source configuration
 	Sources []SourceConfig `yaml:"sources"`
@@ -433,6 +435,10 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.TraceWebCalls = strings.ToLower(value) == "true" || value == "1"
 		case "USE_CALENDAR_TAGS":
 			config.UseCalendarTags = strings.ToLower(value) == "true" || value == "1"
+		case "SINGLE_FILE_OUTPUT":
+			config.SingleFileOutput = strings.ToLower(value) == "true" || value == "1"
+		case "SINGLE_FILE_NAME":
+			config.SingleFileName = value
 		case "PROXY_URL":
 			config.ProxyURL = value
 		case "PROXY_USERNAME":

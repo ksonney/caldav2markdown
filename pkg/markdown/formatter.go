@@ -2165,3 +2165,164 @@ func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, 
 func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
 	return GenerateDailyFilesWithTasks(outputDir, events, nil, false, false)
 }
+
+// GenerateSingleFile creates a single markdown file with all events and tasks organized by date
+func GenerateSingleFile(outputPath string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback ProgressCallback) error {
+	if progressCallback != nil {
+		progressCallback("Generating single file output", 0, 1)
+	}
+
+	// Group events and tasks by date (same logic as daily files)
+	eventsByDate := make(map[string][]EventMarkdown)
+	tasksByDate := make(map[string][]TodoMarkdown)
+	var noDueDateTasks []TodoMarkdown
+
+	for _, event := range events {
+		var dateKey string
+		if event.StartTime.IsZero() {
+			dateKey = "0001-01-01"
+		} else {
+			dateKey = event.StartTime.Format("2006-01-02")
+		}
+		eventsByDate[dateKey] = append(eventsByDate[dateKey], event)
+	}
+
+	for _, task := range tasks {
+		if task.DueDate.IsZero() {
+			noDueDateTasks = append(noDueDateTasks, task)
+		} else {
+			dateKey := task.DueDate.Format("2006-01-02")
+			tasksByDate[dateKey] = append(tasksByDate[dateKey], task)
+		}
+	}
+
+	// Get all unique dates and sort them
+	allDates := make(map[string]bool)
+	for date := range eventsByDate {
+		allDates[date] = true
+	}
+	for date := range tasksByDate {
+		allDates[date] = true
+	}
+
+	datesList := make([]string, 0, len(allDates))
+	for date := range allDates {
+		datesList = append(datesList, date)
+	}
+
+	// Sort dates chronologically
+	for i := 0; i < len(datesList)-1; i++ {
+		for j := i + 1; j < len(datesList); j++ {
+			if datesList[i] > datesList[j] {
+				datesList[i], datesList[j] = datesList[j], datesList[i]
+			}
+		}
+	}
+
+	// Build the single file content
+	var sb strings.Builder
+
+	// Add frontmatter if requested
+	if useFrontmatter {
+		sb.WriteString("---\n")
+		sb.WriteString(fmt.Sprintf("title: Calendar Events and Tasks\n"))
+		sb.WriteString(fmt.Sprintf("generated: %s\n", time.Now().Format("2006-01-02 15:04:05")))
+		sb.WriteString(fmt.Sprintf("total_dates: %d\n", len(datesList)))
+		sb.WriteString(fmt.Sprintf("total_events: %d\n", len(events)))
+		sb.WriteString(fmt.Sprintf("total_tasks: %d\n", len(tasks)))
+		sb.WriteString("type: calendar\n")
+		sb.WriteString("---\n\n")
+	}
+
+	// Add main title
+	sb.WriteString("# Calendar Events and Tasks\n\n")
+
+	// Process each date
+	for i, date := range datesList {
+		if progressCallback != nil {
+			progressCallback(fmt.Sprintf("Processing %s", date), i+1, len(datesList))
+		}
+
+		dayEvents := eventsByDate[date]
+		dayTasks := tasksByDate[date]
+
+		// Skip empty dates
+		if len(dayEvents) == 0 && len(dayTasks) == 0 {
+			continue
+		}
+
+		// Add date header
+		if date == "0001-01-01" {
+			sb.WriteString("## Events (Date TBD)\n\n")
+		} else {
+			parsedDate, _ := time.Parse("2006-01-02", date)
+			sb.WriteString(fmt.Sprintf("## %s\n\n", parsedDate.Format("Monday, January 2, 2006")))
+		}
+
+		// Sort events by start time
+		var allDayEvents, timedEvents []EventMarkdown
+		for _, event := range dayEvents {
+			if event.AllDay || event.StartTime.IsZero() {
+				allDayEvents = append(allDayEvents, event)
+			} else {
+				timedEvents = append(timedEvents, event)
+			}
+		}
+
+		// Simple sort by start time for timed events
+		for i := 0; i < len(timedEvents)-1; i++ {
+			for j := i + 1; j < len(timedEvents); j++ {
+				if timedEvents[i].StartTime.After(timedEvents[j].StartTime) {
+					timedEvents[i], timedEvents[j] = timedEvents[j], timedEvents[i]
+				}
+			}
+		}
+
+		// Add all-day events section
+		if len(allDayEvents) > 0 {
+			sb.WriteString("### All Day Events\n\n")
+			for _, event := range allDayEvents {
+				sb.WriteString(event.ToListItemWithAllOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
+			}
+			sb.WriteString("\n")
+		}
+
+		// Add scheduled events section
+		if len(timedEvents) > 0 {
+			sb.WriteString("### Scheduled Events\n\n")
+			for _, event := range timedEvents {
+				sb.WriteString(event.ToListItemWithAllOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
+			}
+			sb.WriteString("\n")
+		}
+
+		// Add tasks section
+		if len(dayTasks) > 0 {
+			sb.WriteString("### Tasks\n\n")
+			for _, task := range dayTasks {
+				sb.WriteString(task.ToMarkdownWithOptionsAndCalendarTags(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// Add tasks without due dates section
+	if len(noDueDateTasks) > 0 {
+		sb.WriteString("## Tasks Without Due Date\n\n")
+		for _, task := range noDueDateTasks {
+			sb.WriteString(task.ToMarkdownWithOptionsAndCalendarTags(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Write to file
+	if err := writeToFile(outputPath, sb.String()); err != nil {
+		return fmt.Errorf("failed to write single file: %v", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback("Generated single file", 1, 1)
+	}
+
+	return nil
+}

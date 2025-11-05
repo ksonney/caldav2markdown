@@ -1,0 +1,90 @@
+---
+# Emacs Org Mode - Single File Configuration
+# All calendar data in one consolidated Org file
+
+# Global Settings
+output: ~/org
+output_format: org                # Use Emacs Org mode format
+single_file: true                 # Consolidate all events in one file
+single_file_name: calendar.org    # Output filename
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+
+# Database Settings
+use_database: true
+database_path: ~/.config/caldav2markdown/org-calendar.db
+
+# Org mode settings
+use_hashtags: true            # Generates :event: and :task: tags
+use_calendar_tags: true       # Adds calendar name tags
+ignore_descriptions: false    # Keep full context
+ignore_declined: true         # Skip declined events
+event_checkboxes: true        # Use TODO/DONE states
+
+sources:
+  # Google Calendar with OAuth
+  - type: caldav
+    name: Google
+    caldav:
+      url: https://apidata.googleusercontent.com/caldav/v2/primary/events
+      use_oauth: true
+      client_id: your-google-client-id.apps.googleusercontent.com
+      client_secret: your-google-client-secret
+      discover_calendars: true
+      calendar_aliases:
+        "Personal": "life"
+        "Work": "work"
+
+  # Local task file
+  - type: ics
+    name: Tasks
+    ics:
+      type: local
+      path: ~/org/tasks.ics
+
+# Single File Structure:
+#
+# calendar.org will contain:
+# #+TITLE: Calendar
+#
+# * Monday, November 4, 2024
+# ** All Day Events
+# *** TODO Holiday :event:work:
+#     SCHEDULED: <2024-11-04 Mon>
+#     :PROPERTIES:
+#     :ID: event-id
+#     :END:
+#
+# ** Scheduled Events
+# *** TODO Meeting :event:work:
+#     SCHEDULED: <2024-11-04 Mon 09:00-10:00>
+#     :PROPERTIES:
+#     :ID: meeting-id
+#     :LOCATION: Room A
+#     :END:
+#
+# * Tuesday, November 5, 2024
+# ** Scheduled Events
+# ...
+#
+# * Tasks Without Due Date
+# ** TODO General Task :task:work:
+#    :PROPERTIES:
+#    :ID: task-id
+#    :END:
+#
+# Benefits of single file mode:
+# - Simpler Org-agenda setup (one file to track)
+# - Easier to navigate with Org outlining
+# - Better for sparse calendars
+# - Ideal for mobile sync (one file to sync)
+# - Works great with git version control
+#
+# Usage with Emacs:
+# (setq org-agenda-files '("~/org/calendar.org"))
+#
+# Navigate with:
+# - TAB: Cycle visibility
+# - S-TAB: Global cycling
+# - C-c C-n/p: Next/previous heading
+# - C-c a a: Agenda view

@@ -15,6 +15,7 @@ import (
 	"caldav2markdown/pkg/database"
 	icsource "caldav2markdown/pkg/ics"
 	"caldav2markdown/pkg/markdown"
+	"caldav2markdown/pkg/org"
 )
 
 // SourcedEvent tracks an event with its source information
@@ -76,8 +77,9 @@ func main() {
 		obsidianTasks          = flag.Bool("obsidian-tasks", false, "Enable Obsidian tasks preset (event checkboxes, ignore descriptions, frontmatter, emojis, hashtags)")
 		useObsidianEmojis      = flag.Bool("obsidian-emojis", false, "Use Obsidian Tasks emoji format for start/end times (🛫 for start, ✅ for end)")
 		useCalendarTags        = flag.Bool("calendar-tags", false, "Add calendar name tags to events and tasks")
-		singleFileOutput       = flag.Bool("single-file", false, "Generate a single markdown file instead of separate daily files")
+		singleFileOutput       = flag.Bool("single-file", false, "Generate a single file instead of separate daily files")
 		singleFileName         = flag.String("single-file-name", "calendar.md", "Name of the single output file when using -single-file")
+		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown or org")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -196,6 +198,17 @@ func main() {
 	}
 	if cfg.SingleFileName == "" {
 		cfg.SingleFileName = "calendar.md"
+	}
+	if *outputFormat != "markdown" {
+		switch strings.ToLower(*outputFormat) {
+		case "org":
+			cfg.OutputFormat = "org"
+		case "markdown", "md":
+			cfg.OutputFormat = "markdown"
+		default:
+			fmt.Printf("Invalid output format: %s (expected: markdown or org)\n", *outputFormat)
+			os.Exit(1)
+		}
 	}
 	if *useServerSideFiltering {
 		cfg.UseServerSideFiltering = true
@@ -369,18 +382,19 @@ func main() {
 		fmt.Println("  -db-clear         Clear all database data and exit")
 		fmt.Println("")
 		fmt.Println("Common Options:")
-		fmt.Println("  -output           Output directory for markdown files (default: ./events)")
+		fmt.Println("  -output           Output directory for files (default: ./events)")
 		fmt.Printf("  -config           Configuration file path (default: %s)\n", defaultConfigPath)
 		fmt.Println("  -start            Start date for events (YYYY-MM-DD, default: 2000-01-01)")
 		fmt.Println("  -end              End date for events (YYYY-MM-DD, default: 2 years from now)")
+		fmt.Println("  -output-format    Output format: markdown or org (default: markdown)")
 		fmt.Println("  -emoji            Use 📅 emoji for due dates in tasks")
 		fmt.Println("  -hashtags         Add #event and #task hashtags")
 		fmt.Println("  -frontmatter      Add YAML frontmatter to markdown files")
 		fmt.Println("  -ignore-descriptions  Ignore event and task descriptions in output")
 		fmt.Println("  -event-checkboxes     Add checkboxes to events for task-like formatting")
 		fmt.Println("  -obsidian-tasks   Enable Obsidian preset (event checkboxes + ignore descriptions + frontmatter + emojis + hashtags)")
-		fmt.Println("  -single-file      Generate a single markdown file instead of separate daily files")
-		fmt.Println("  -single-file-name Name of the single output file (default: calendar.md)")
+		fmt.Println("  -single-file      Generate a single file instead of separate daily files")
+		fmt.Println("  -single-file-name Name of the single output file (default: calendar.md or calendar.org)")
 		fmt.Println("")
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -601,26 +615,53 @@ func main() {
 		}
 	}
 
-	// Generate output files - either single file or daily files
-	if cfg.SingleFileOutput {
-		fmt.Println("Generating single file output...")
-		outputPath := filepath.Join(cfg.Output, cfg.SingleFileName)
-		if err := markdown.GenerateSingleFile(outputPath, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
-			fmt.Printf("\nFailed to generate single file: %v\n", err)
+	// Generate output files based on format - either single file or daily files
+	if cfg.OutputFormat == "org" {
+		// Org mode output
+		if cfg.SingleFileOutput {
+			fmt.Println("Generating single Org file output...")
+			outputPath := filepath.Join(cfg.Output, cfg.SingleFileName)
+			if !strings.HasSuffix(outputPath, ".org") {
+				outputPath = strings.TrimSuffix(outputPath, filepath.Ext(outputPath)) + ".org"
+			}
+			if err := org.GenerateSingleOrgFile(outputPath, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+				fmt.Printf("\nFailed to generate single Org file: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println() // New line after progress
+			fmt.Printf("Successfully created %s with %d events and %d tasks\n", outputPath, len(sourcedEvents), len(sourcedTodos))
+			return
+		}
+
+		// Generate daily Org files
+		fmt.Println("Generating daily Org files...")
+		if err := org.GenerateDailyOrgFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+			fmt.Printf("\nFailed to generate daily Org files: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println() // New line after progress
-		fmt.Printf("Successfully created %s with %d events and %d tasks\n", outputPath, len(sourcedEvents), len(sourcedTodos))
-		return
-	}
+	} else {
+		// Markdown output (default)
+		if cfg.SingleFileOutput {
+			fmt.Println("Generating single file output...")
+			outputPath := filepath.Join(cfg.Output, cfg.SingleFileName)
+			if err := markdown.GenerateSingleFile(outputPath, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+				fmt.Printf("\nFailed to generate single file: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println() // New line after progress
+			fmt.Printf("Successfully created %s with %d events and %d tasks\n", outputPath, len(sourcedEvents), len(sourcedTodos))
+			return
+		}
 
-	// Generate daily aggregated files with both events and tasks
-	fmt.Println("Generating daily files...")
-	if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
-		fmt.Printf("\nFailed to generate daily files: %v\n", err)
-		os.Exit(1)
+		// Generate daily aggregated markdown files with both events and tasks
+		fmt.Println("Generating daily files...")
+		if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+			fmt.Printf("\nFailed to generate daily files: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println() // New line after progress
 	}
-	fmt.Println() // New line after progress
 
 	// Count unique dates for reporting
 	dateCount := make(map[string]bool)

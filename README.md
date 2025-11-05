@@ -5,15 +5,16 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 ## 🆕 Recent Updates
 
 ### Latest Enhancements (2025)
-- **💾 SQLite Database Storage**: Optional database for event/todo tracking, deduplication, and change detection with smart markdown updates
+- **📝 Org Mode Output**: Full Emacs Org mode format support with native scheduling, TODO states, properties drawers, and tags
+- **💾 SQLite Database Storage**: Optional database for event/todo tracking, deduplication, and change detection with smart updates
 - **🚫 Ignore Declined Events**: Automatically skip events you've declined (STATUS=CANCELLED or PARTSTAT=DECLINED) to keep your calendar clean
 - **🎯 Obsidian Tasks Emoji Format**: Added support for Obsidian Tasks emoji format with 🛫 for start times and ✅ for end times
 - **🔧 Fixed Autodiscovery**: Resolved configuration validation issue that prevented autodiscovery from working without explicit SOURCE_MODE setting
 - **🏷️ Calendar Name Display & Aliases**: Events and tasks now display their source calendar with support for custom aliases
 - **🕐 Time Zone Support**: Full TZID parameter support for accurate time zone handling in events and tasks
-- **📝 Smart Todo Management**: Tasks without due dates are now saved to a separate `todo.md` file with intelligent merging
+- **📝 Smart Todo Management**: Tasks without due dates are now saved to a separate `todo.md`/`todo.org` file with intelligent merging
 - **🔀 Intelligent Frontmatter Merging**: Enhanced file merging preserves custom frontmatter fields while updating calendar statistics
-- **✅ Past Event Marking**: When EVENT_CHECKBOXES is enabled, past events are automatically marked as completed [x]
+- **✅ Past Event Marking**: When EVENT_CHECKBOXES is enabled, past events are automatically marked as completed [x] or DONE
 
 ### Enhanced Recurring Event Processing (2025)
 - **Fixed Date Range Filtering**: Recurring events and tasks are now properly processed when their original start date falls outside the configured date filter range
@@ -44,12 +45,14 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 - **Parallel Processing**: Concurrent calendar processing with error handling
 
 ### 📁 Output & Organization
-- **Daily Aggregation**: Events and tasks organized in `YYYY-MM-DD.md` files
-- **Smart Todo Management**: Tasks without due dates saved to separate `todo.md` file
-- **YAML Frontmatter**: Optional structured metadata for static site generators
-- **Intelligent File Merging**: Preserves custom frontmatter fields and manual edits while adding new calendar data
-- **Flexible Formatting**: Customizable emoji, hashtags, display options, optional description exclusion, and event checkboxes
-- **Past Event Marking**: Automatically marks past events as completed when checkboxes are enabled
+- **Multiple Output Formats**: Choose between Markdown (`.md`) or Emacs Org mode (`.org`) output
+- **Daily Aggregation**: Events and tasks organized in `YYYY-MM-DD.md` or `YYYY-MM-DD.org` files
+- **Single File Mode**: Optional consolidated output in one file instead of daily files
+- **Smart Todo Management**: Tasks without due dates saved to separate `todo.md` or `todo.org` file
+- **Structured Metadata**: YAML frontmatter (Markdown) or Org properties drawer (Org mode) for static site generators
+- **Intelligent File Merging**: Preserves custom content and manual edits while adding new calendar data
+- **Flexible Formatting**: Customizable emoji, hashtags/tags, display options, optional description exclusion, and event checkboxes/TODO states
+- **Past Event Marking**: Automatically marks past events as completed [x] (Markdown) or DONE (Org mode) when checkboxes are enabled
 - **Directory Structure**: Organized in `YYYY/MM/` hierarchy for easy navigation
 
 ### 📅 Calendar Features
@@ -289,6 +292,16 @@ bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "
   -server-side-filtering -frontmatter -emoji -hashtags \
   -start 2024-01-01 -end 2024-12-31 -output ./my-calendar
 
+# Org mode output for Emacs integration
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -output-format org -hashtags -calendar-tags -event-checkboxes \
+  -output ~/org/calendars
+
+# Single Org file output
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -output-format org -single-file -single-file-name calendar.org \
+  -hashtags -event-checkboxes -output ./org-calendar
+
 # Test connection to server
 bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" -test
 
@@ -359,14 +372,17 @@ bin/caldav2markdown -test
 #### Optional Options
 
 **Output and Formatting:**
-- `-output`: Output directory for markdown files (default: ./events)
+- `-output`: Output directory for files (default: ./events)
+- `-output-format`: Output format: "markdown" or "org" (default: markdown)
+- `-single-file`: Generate single file instead of daily files
+- `-single-file-name`: Name for single file output (default: calendar.md or calendar.org)
 - `-config`: Configuration file path (default: ~/.config/caldav2markdown/config.yaml)
-- `-emoji`: Use 📅 emoji for due dates in tasks
-- `-hashtags`: Add #event and #task hashtags
-- `-calendar-tags`: Add calendar name hashtags (e.g., #work-calendar, #personal)
-- `-frontmatter`: Add YAML frontmatter to markdown files
+- `-emoji`: Use 📅 emoji for due dates in tasks (Markdown only)
+- `-hashtags`: Add #event and #task hashtags (Markdown) or :tags: (Org)
+- `-calendar-tags`: Add calendar name hashtags/tags (e.g., #work or :work:)
+- `-frontmatter`: Add YAML frontmatter (Markdown) or properties drawer (Org)
 - `-ignore-descriptions`: Ignore event and task descriptions in output
-- `-event-checkboxes`: Add checkboxes to events for task-like formatting
+- `-event-checkboxes`: Add checkboxes (Markdown) or TODO states (Org) to events
 
 **Date Filtering:**
 - `-start`: Start date for event filtering (YYYY-MM-DD format)
@@ -417,9 +433,11 @@ bin/caldav2markdown \
 
 ### File Organization
 
-- **Daily Files**: Events and tasks with due dates are organized in `YYYY/MM/YYYY-MM-DD.md` files
-- **Todo File**: Tasks without due dates are saved to `todo.md` in the output directory root
+- **Daily Files**: Events and tasks with due dates are organized in `YYYY/MM/YYYY-MM-DD.md` (Markdown) or `YYYY/MM/YYYY-MM-DD.org` (Org mode) files
+- **Single File Mode**: All content in one `calendar.md` or `calendar.org` file (when `-single-file` is enabled)
+- **Todo File**: Tasks without due dates are saved to `todo.md` (Markdown) or `todo.org` (Org mode) in the output directory root
 - **Zero Dates**: Events with zero or invalid dates are saved in `0001/01/` directory
+- **Output Format**: Determined by `-output-format` flag or `OUTPUT_FORMAT` config (default: markdown)
 
 ### Daily File Format
 
@@ -680,6 +698,259 @@ CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work,Google Calendar:G
 - **Multi-calendar Organization**: Distinguish between work, personal, and shared calendars
 - **Clean Display**: Use short aliases instead of long technical calendar names
 - **Consistent Formatting**: Uniform display across all events and tasks
+
+## Org Mode Output
+
+The application provides full support for Emacs Org mode format as an alternative to Markdown, perfect for Emacs users and Org-agenda integration.
+
+### Enabling Org Mode
+
+**Environment File**:
+```env
+OUTPUT_FORMAT=org
+```
+
+**YAML Configuration**:
+```yaml
+output_format: org
+```
+
+**Command Line**:
+```bash
+bin/caldav2markdown -output-format org
+```
+
+### Org Mode Features
+
+#### Native Org Syntax
+- **TODO States**: Events and tasks use `** TODO` for future items, `** DONE` for completed/past items
+- **Scheduling**: `SCHEDULED: <2024-11-05 Tue 09:00-10:00>` for timed events
+- **Deadlines**: `DEADLINE: <2024-11-05 Tue>` for tasks with due dates
+- **Properties Drawer**: Metadata stored in `:PROPERTIES:` drawer (ID, LOCATION, CALENDAR, STATUS, CATEGORIES)
+- **Tags**: Org-style tags `:event:work:personal:` instead of hashtags
+- **Priority Levels**: iCal priorities automatically mapped to Org priorities [#A], [#B], [#C]
+
+#### Example Org Mode Output
+
+**Daily Org File** (`2024-11-05.org`):
+```org
+#+TITLE: Tuesday, November 5, 2024
+
+* All Day Events
+
+# uid:company-holiday-123
+** TODO Company Holiday :event:work:
+   SCHEDULED: <2024-11-05 Tue>
+   :PROPERTIES:
+   :ID: company-holiday-123
+   :CALENDAR: Work
+   :STATUS: CONFIRMED
+   :END:
+
+* Scheduled Events
+
+# uid:team-meeting-456
+** TODO Team Meeting :event:work:
+   SCHEDULED: <2024-11-05 Tue 09:00-10:00>
+   :PROPERTIES:
+   :ID: team-meeting-456
+   :LOCATION: Conference Room A
+   :CALENDAR: Work
+   :STATUS: CONFIRMED
+   :END:
+   Weekly team sync to discuss project progress
+
+# uid:project-review-789
+** DONE Project Review :event:work:
+   SCHEDULED: <2024-11-04 Mon 14:00-15:30>
+   :PROPERTIES:
+   :ID: project-review-789
+   :LOCATION: Room B
+   :CALENDAR: Work
+   :STATUS: CONFIRMED
+   :CATEGORIES: meetings, planning
+   :END:
+   Quarterly project progress review
+
+* Tasks
+
+# uid:complete-report-abc
+** TODO Complete Report [#A] :task:work:
+   DEADLINE: <2024-11-05 Tue>
+   :PROPERTIES:
+   :ID: complete-report-abc
+   :CALENDAR: Work
+   :STATUS: NEEDS-ACTION
+   :PRIORITY: 1
+   :CATEGORIES: reports, deadlines
+   :END:
+   Finish quarterly report and submit for review
+```
+
+**Todo Org File** (`todo.org`):
+```org
+#+TITLE: Tasks Without Due Date
+
+* Tasks
+
+# uid:research-framework-123
+** TODO Research new framework [#B] :task:personal:
+   :PROPERTIES:
+   :ID: research-framework-123
+   :CALENDAR: Personal
+   :STATUS: NEEDS-ACTION
+   :PRIORITY: 5
+   :END:
+   Investigate modern web frameworks for next project
+
+# uid:call-client-456
+** TODO Call client [#A] :task:work:
+   :PROPERTIES:
+   :ID: call-client-456
+   :CALENDAR: Work
+   :STATUS: NEEDS-ACTION
+   :PRIORITY: 1
+   :END:
+```
+
+### Single Org File Mode
+
+Create a single consolidated Org file instead of daily files:
+
+```bash
+bin/caldav2markdown -output-format org -single-file -single-file-name calendar.org
+```
+
+**Single File Output** (`calendar.org`):
+```org
+#+TITLE: Calendar
+
+* Monday, November 4, 2024
+
+** All Day Events
+
+# uid:event-123
+*** TODO Holiday :event:work:
+    SCHEDULED: <2024-11-04 Mon>
+    :PROPERTIES:
+    :ID: event-123
+    :CALENDAR: Work
+    :END:
+
+** Scheduled Events
+
+# uid:meeting-456
+*** DONE Morning Meeting :event:work:
+    SCHEDULED: <2024-11-04 Mon 09:00-10:00>
+    :PROPERTIES:
+    :ID: meeting-456
+    :LOCATION: Room A
+    :CALENDAR: Work
+    :END:
+
+* Tuesday, November 5, 2024
+
+** Scheduled Events
+
+# uid:meeting-789
+*** TODO Afternoon Meeting :event:personal:
+    SCHEDULED: <2024-11-05 Tue 14:00-15:00>
+    :PROPERTIES:
+    :ID: meeting-789
+    :LOCATION: Coffee Shop
+    :CALENDAR: Personal
+    :END:
+
+* Tasks Without Due Date
+
+# uid:task-abc
+** TODO General Task :task:work:
+   :PROPERTIES:
+   :ID: task-abc
+   :CALENDAR: Work
+   :END:
+```
+
+### Org Mode Configuration Examples
+
+#### Basic Org Mode Setup
+```env
+OUTPUT_FORMAT=org
+CALDAV_URL=https://your-server.com/caldav/calendars/user/calendar/
+CALDAV_USERNAME=user
+CALDAV_PASSWORD=password
+OUTPUT_DIR=./org-calendar
+USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
+EVENT_CHECKBOXES=true
+```
+
+#### Emacs Org-Agenda Integration
+```env
+OUTPUT_FORMAT=org
+CALDAV_URL=https://your-server.com/caldav/calendars/user/calendar/
+CALDAV_USERNAME=user
+CALDAV_PASSWORD=password
+OUTPUT_DIR=~/org/calendars
+USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
+EVENT_CHECKBOXES=true
+DISCOVER_CALENDARS=true
+CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work
+```
+
+#### Single Org File for All Calendars
+```yaml
+---
+output_format: org
+output: ./org-calendar
+single_file: true
+single_file_name: calendar.org
+use_hashtags: true
+event_checkboxes: true
+
+sources:
+  - type: caldav
+    name: My Calendar
+    caldav:
+      url: https://your-server.com/caldav/
+      username: user
+      password: password
+      discover_calendars: true
+```
+
+### Org Mode Formatting Options
+
+All standard formatting options work with Org mode:
+
+- **USE_HASHTAGS**: Generates `:event:` and `:task:` tags
+- **USE_CALENDAR_TAGS**: Adds calendar name tags like `:work:`, `:personal:`
+- **EVENT_CHECKBOXES**: Uses `TODO` for future items, `DONE` for past items
+- **IGNORE_DESCRIPTIONS**: Omits event/task descriptions
+- **CALENDAR_ALIASES**: Works with calendar name tags
+
+**Note**: Markdown-specific options (USE_DUE_DATE_EMOJI, USE_OBSIDIAN_EMOJIS, OBSIDIAN_TASKS) are ignored when using Org mode format.
+
+### Org-Agenda Integration
+
+Add the generated Org files to your Org-agenda:
+
+```elisp
+;; In your Emacs configuration
+(setq org-agenda-files '("~/org/calendars/"))
+
+;; Or add individual files
+(add-to-list 'org-agenda-files "~/org/calendars/2024/11/2024-11-05.org")
+```
+
+### Advantages of Org Mode
+
+- **Native Emacs Integration**: Seamless integration with Emacs and Org-agenda
+- **Powerful Scheduling**: Leverage Org mode's native scheduling and deadline system
+- **Tag System**: Use Org's flexible tag system for organization
+- **Properties Drawer**: Store structured metadata in a standard Org format
+- **TODO States**: Native TODO/DONE states with optional custom keywords
+- **Extensible**: Full access to Org mode's extensive feature set
 
 ## Date/Time Format Support
 

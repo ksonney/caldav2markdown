@@ -1,0 +1,110 @@
+---
+# Emacs Org Mode Configuration
+# Optimized setup for Emacs users with Org-agenda integration
+
+# Global Settings
+output: ~/org/calendars
+output_format: org                # Use Emacs Org mode format
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+
+# Database Settings (recommended for smart updates)
+use_database: true
+database_path: ~/.config/caldav2markdown/org-calendar.db
+
+# Org mode optimized settings
+use_hashtags: true            # Generates :event: and :task: tags
+use_calendar_tags: true       # Adds calendar name tags (:work:, :personal:)
+use_frontmatter: false        # Not needed - Org uses properties drawer
+ignore_descriptions: false    # Keep full context in descriptions
+ignore_declined: true         # Skip declined events
+event_checkboxes: true        # Use TODO/DONE states for events
+
+# Note: Markdown-specific options are ignored in org format:
+# - use_due_date_emoji (Org uses DEADLINE/SCHEDULED)
+# - use_obsidian_emojis (Org has native time format)
+# - obsidian_tasks (Markdown-specific preset)
+
+sources:
+  # Primary Google Calendar
+  - type: caldav
+    name: Google Calendar
+    caldav:
+      url: https://apidata.googleusercontent.com/caldav/v2/primary/events
+      use_oauth: true
+      client_id: your-google-client-id.apps.googleusercontent.com
+      client_secret: your-google-client-secret
+      discover_calendars: true
+      use_server_side_filtering: true
+      calendar_aliases:
+        "Personal": "life"
+        "Work": "work"
+        "Family": "family"
+
+  # NextCloud CalDAV
+  - type: caldav
+    name: NextCloud
+    caldav:
+      url: https://nextcloud.example.com/remote.php/dav/calendars/username/
+      username: nextcloud-username
+      password: nextcloud-password
+      discover_calendars: true
+      use_server_side_filtering: true
+      calendar_aliases:
+        "Calendar": "nextcloud"
+        "Tasks": "todos"
+
+  # Local Org files exported as ICS (for integration with other systems)
+  - type: ics
+    name: Org Export
+    ics:
+      type: local
+      path: ~/org/exported-calendar.ics
+
+  # Project management integration
+  - type: ics
+    name: GitHub Milestones
+    ics:
+      type: remote
+      path: https://github.com/username/repo/milestones.ics
+      auth: bearer
+      token: ghp_your_github_token_here
+      timeout: 30s
+
+  # Team calendar
+  - type: caldav
+    name: Team Calendar
+    caldav:
+      url: https://team-calendar.company.com/caldav/
+      username: team-username
+      password: team-password
+      include_calendars:
+        - "Team Events"
+        - "Sprint Planning"
+        - "Releases"
+      calendar_aliases:
+        "Team Events": "team"
+        "Sprint Planning": "sprint"
+        "Releases": "release"
+
+# Usage with Emacs Org-agenda:
+# Add this to your Emacs configuration:
+#
+# (setq org-agenda-files '("~/org/calendars/"))
+#
+# Or for selective files:
+# (add-to-list 'org-agenda-files "~/org/calendars/2024/11/2024-11-05.org")
+#
+# Recommended Org-agenda commands:
+# - C-c a a: View weekly/daily agenda
+# - C-c a t: Global TODO list
+# - C-c a m: Match tags/properties
+# - C-c a s: Search by keyword
+#
+# Calendar sync workflow:
+# 1. Run: caldav2markdown -config example-org-mode.yaml
+# 2. Open Emacs and run: M-x org-agenda
+# 3. View your calendar events as native Org TODO items
+#
+# For automatic sync, add to crontab:
+# 0 */6 * * * /usr/local/bin/caldav2markdown -config ~/org/example-org-mode.yaml

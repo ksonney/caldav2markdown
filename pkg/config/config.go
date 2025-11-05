@@ -93,6 +93,7 @@ type Config struct {
 	CalendarAliases     map[string]string `yaml:"calendar_aliases"`
 	SingleFileOutput    bool              `yaml:"single_file_output"`
 	SingleFileName      string            `yaml:"single_file_name"`
+	OutputFormat        string            `yaml:"output_format"` // "markdown" or "org"
 
 	// Multi-source configuration
 	Sources []SourceConfig `yaml:"sources"`
@@ -329,12 +330,13 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 	defer file.Close()
 
 	config := &Config{
-		Output:     "./events",
-		StartDate:  time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), // Default start date
-		EndDate:    time.Now().AddDate(2, 0, 0),                  // Default end date (2 years from now)
-		SourceMode: SourceModeCalDAV,                             // Default to CalDAV for backward compatibility
-		ICSTimeout: 30 * time.Second,                             // Default HTTP timeout for ICS sources
-		ICSHeaders: make(map[string]string),
+		Output:       "./events",
+		StartDate:    time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), // Default start date
+		EndDate:      time.Now().AddDate(2, 0, 0),                  // Default end date (2 years from now)
+		SourceMode:   SourceModeCalDAV,                             // Default to CalDAV for backward compatibility
+		ICSTimeout:   30 * time.Second,                             // Default HTTP timeout for ICS sources
+		ICSHeaders:   make(map[string]string),
+		OutputFormat: "markdown", // Default to markdown for backward compatibility
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -439,6 +441,16 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.SingleFileOutput = strings.ToLower(value) == "true" || value == "1"
 		case "SINGLE_FILE_NAME":
 			config.SingleFileName = value
+		case "OUTPUT_FORMAT":
+			switch strings.ToLower(value) {
+			case "markdown", "md":
+				config.OutputFormat = "markdown"
+			case "org":
+				config.OutputFormat = "org"
+			default:
+				fmt.Printf("Warning: unknown output format '%s', using markdown\n", value)
+				config.OutputFormat = "markdown"
+			}
 		case "PROXY_URL":
 			config.ProxyURL = value
 		case "PROXY_USERNAME":
@@ -527,12 +539,13 @@ func LoadFromYAMLFile(filename string) (*Config, error) {
 
 	// Create config with defaults
 	config := &Config{
-		Output:     "./events",
-		StartDate:  time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), // Default start date
-		EndDate:    time.Now().AddDate(2, 0, 0),                  // Default end date (2 years from now)
-		SourceMode: SourceModeCalDAV,                             // Default to CalDAV for backward compatibility
-		ICSTimeout: 30 * time.Second,                             // Default HTTP timeout for ICS sources
-		ICSHeaders: make(map[string]string),
+		Output:       "./events",
+		StartDate:    time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), // Default start date
+		EndDate:      time.Now().AddDate(2, 0, 0),                  // Default end date (2 years from now)
+		SourceMode:   SourceModeCalDAV,                             // Default to CalDAV for backward compatibility
+		ICSTimeout:   30 * time.Second,                             // Default HTTP timeout for ICS sources
+		ICSHeaders:   make(map[string]string),
+		OutputFormat: "markdown", // Default to markdown for backward compatibility
 	}
 
 	// Parse YAML

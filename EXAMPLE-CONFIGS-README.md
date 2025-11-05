@@ -75,6 +75,30 @@ bin/caldav2markdown -config my-config.yaml
 
 **Best for:** Developers and QA teams
 
+### 📝 `example-org-mode.yaml`
+**Emacs Org mode integration**
+- Org mode output format (`.org` files)
+- Daily Org files with proper scheduling
+- TODO/DONE states for events and tasks
+- Properties drawer for metadata
+- Org-style tags instead of hashtags
+- Optimized for Org-agenda integration
+- Multiple CalDAV and ICS sources
+- Calendar discovery and aliases
+
+**Best for:** Emacs users who want native Org mode calendar integration
+
+### 📋 `example-org-single-file.yaml`
+**Single Org file consolidation**
+- All calendar data in one `calendar.org` file
+- Date-based level 1 headings
+- Simpler Org-agenda setup
+- Ideal for mobile sync and git version control
+- Better for sparse calendars
+- Easy navigation with Org outlining
+
+**Best for:** Emacs users who prefer a single consolidated Org file
+
 ## Authentication Methods Covered
 
 ### CalDAV Sources
@@ -92,10 +116,13 @@ bin/caldav2markdown -config my-config.yaml
 
 ### Global Settings
 - Output directory configuration
+- Output format selection (Markdown or Org mode)
+- Single file vs. daily files
 - Date range filtering
 - Database storage and change tracking
-- Display options (emojis, hashtags, frontmatter, checkboxes)
-- Obsidian tasks preset
+- Display options (emojis, hashtags, frontmatter/properties, checkboxes/TODO states)
+- Obsidian tasks preset (Markdown only)
+- Org mode native features (SCHEDULED, DEADLINE, properties drawer, tags)
 - Debug logging
 
 ### Source Management
@@ -149,13 +176,21 @@ bin/caldav2markdown -config my-config.yaml
    calendar_aliases:
      "Very Long Calendar Name": "Short"
    ```
-2. **Choose appropriate display options**:
+2. **Choose appropriate display options for Markdown**:
    ```yaml
    obsidian_tasks: true      # One-click Obsidian optimization
    # OR customize individually:
    event_checkboxes: true
    use_due_date_emoji: true
    ignore_descriptions: false
+   ```
+3. **Configure Org mode output**:
+   ```yaml
+   output_format: org        # Use Emacs Org mode format
+   use_hashtags: true        # Generates :event: and :task: tags
+   use_calendar_tags: true   # Adds calendar name tags
+   event_checkboxes: true    # Uses TODO/DONE states
+   single_file: true         # Optional: consolidate in one file
    ```
 
 ### Multi-Source Strategy

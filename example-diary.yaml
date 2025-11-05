@@ -1,0 +1,130 @@
+---
+# Emacs Diary Configuration
+# Traditional Emacs calendar diary format setup
+
+# Global Settings
+output: ~/emacs                   # Diary file will be created as ~/emacs/diary
+output_format: diary              # Use Emacs diary format (automatic single file mode)
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+
+# Optional: Custom diary filename (default is "diary")
+# single_file_name: my-calendar
+
+# Database Settings (recommended for smart updates)
+use_database: true
+database_path: ~/.config/caldav2markdown/diary-calendar.db
+
+# Diary format optimized settings
+use_hashtags: true            # Adds #event and #task tags
+use_calendar_tags: true       # Adds calendar name tags (#work, #personal)
+ignore_descriptions: false    # Keep full context in descriptions
+ignore_declined: true         # Skip declined events
+event_checkboxes: true        # Use [DONE] prefix for past events/completed tasks
+
+# Note: Format-specific options that are ignored in diary format:
+# - use_due_date_emoji (diary has its own date format)
+# - use_frontmatter (diary doesn't use YAML frontmatter)
+# - use_obsidian_emojis (diary format specific)
+# - obsidian_tasks (Markdown-specific preset)
+
+sources:
+  # Primary Google Calendar
+  - type: caldav
+    name: Google Calendar
+    caldav:
+      url: https://apidata.googleusercontent.com/caldav/v2/primary/events
+      use_oauth: true
+      client_id: your-google-client-id.apps.googleusercontent.com
+      client_secret: your-google-client-secret
+      discover_calendars: true
+      use_server_side_filtering: true
+      calendar_aliases:
+        "Personal": "Personal"
+        "Work": "Work"
+        "Family": "Family"
+
+  # NextCloud CalDAV
+  - type: caldav
+    name: NextCloud
+    caldav:
+      url: https://nextcloud.example.com/remote.php/dav/calendars/username/
+      username: nextcloud-username
+      password: nextcloud-password
+      discover_calendars: true
+      use_server_side_filtering: true
+      calendar_aliases:
+        "Calendar": "NextCloud"
+        "Tasks": "Todos"
+
+  # Local ICS file
+  - type: ics
+    name: Local Events
+    ics:
+      type: local
+      path: ~/calendars/local-events.ics
+
+  # Remote team calendar
+  - type: ics
+    name: Team Calendar
+    ics:
+      type: remote
+      path: https://team.company.com/calendar/export.ics
+      auth: basic
+      username: team-username
+      password: team-password
+      timeout: 30s
+
+  # iCloud calendar (using app-specific password)
+  - type: caldav
+    name: iCloud
+    caldav:
+      url: https://caldav.icloud.com/DSID/calendars/
+      username: apple-id@icloud.com
+      password: app-specific-password
+      discover_calendars: true
+      calendar_aliases:
+        "Home": "Personal"
+        "Work": "Work"
+
+# Usage with Emacs calendar:
+# Add this to your Emacs configuration:
+#
+# ;; Set diary file location
+# (setq diary-file "~/emacs/diary")
+#
+# ;; Enable diary display in calendar
+# (setq calendar-mark-diary-entries-flag t)
+#
+# ;; Optional: fancy diary display
+# (add-hook 'diary-list-entries-hook 'diary-include-other-diary-files)
+# (add-hook 'diary-mark-entries-hook 'diary-mark-included-diary-files)
+#
+# Emacs calendar commands:
+# - M-x calendar: Open the calendar
+# - Press 'd' in calendar: View diary entries for selected day
+# - Press 'm' in calendar: Mark days with diary entries
+# - M-x diary: View diary entries for today
+#
+# Calendar sync workflow:
+# 1. Run: caldav2markdown -config example-diary.yaml
+# 2. Open Emacs and run: M-x calendar
+# 3. Press 'd' to view diary entries or 'm' to mark days with events
+# 4. Your CalDAV events and tasks are now visible in Emacs calendar
+#
+# For automatic sync, add to crontab:
+# 0 */6 * * * /usr/local/bin/caldav2markdown -config ~/example-diary.yaml
+#
+# Diary file format:
+# - Timed events: 1/15/2025 10:00am-11:00am Team Meeting @ Room A [Work] #event #work
+# - All-day events: 1/20/2025 Company Holiday [Personal] #event #personal
+# - Tasks with due dates: 1/25/2025 5:00pm Complete report [Work] #task #work
+# - Tasks without due dates: %%(diary-entry "TODO") Research tools [Personal] #task
+# - Completion markers: [DONE] prefix for past events and completed tasks
+# - UIDs for deduplication: {uid:...} (hidden metadata)
+#
+# The diary file automatically:
+# - Sorts entries chronologically by date
+# - Deduplicates based on UIDs
+# - Merges with existing custom entries
+# - Preserves manual diary entries and comments

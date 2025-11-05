@@ -93,7 +93,7 @@ type Config struct {
 	CalendarAliases     map[string]string `yaml:"calendar_aliases"`
 	SingleFileOutput    bool              `yaml:"single_file_output"`
 	SingleFileName      string            `yaml:"single_file_name"`
-	OutputFormat        string            `yaml:"output_format"` // "markdown" or "org"
+	OutputFormat        string            `yaml:"output_format"` // "markdown", "org", or "diary"
 
 	// Multi-source configuration
 	Sources []SourceConfig `yaml:"sources"`
@@ -447,6 +447,8 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 				config.OutputFormat = "markdown"
 			case "org":
 				config.OutputFormat = "org"
+			case "diary":
+				config.OutputFormat = "diary"
 			default:
 				fmt.Printf("Warning: unknown output format '%s', using markdown\n", value)
 				config.OutputFormat = "markdown"
@@ -514,6 +516,9 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
+	// Validate and normalize output format
+	config.NormalizeOutputFormat()
+
 	// Apply Obsidian tasks preset if enabled
 	config.ApplyObsidianTasksPreset()
 
@@ -560,6 +565,9 @@ func LoadFromYAMLFile(filename string) (*Config, error) {
 			config.Sources[i].ICSSource.Headers = make(map[string]string)
 		}
 	}
+
+	// Validate and normalize output format
+	config.NormalizeOutputFormat()
 
 	// Apply Obsidian tasks preset if enabled
 	config.ApplyObsidianTasksPreset()
@@ -714,6 +722,30 @@ func (c *Config) validateYAMLSource(source SourceConfig, index int) error {
 	}
 
 	return nil
+}
+
+// NormalizeOutputFormat validates and normalizes the output format setting
+func (c *Config) NormalizeOutputFormat() {
+	switch strings.ToLower(c.OutputFormat) {
+	case "markdown", "md":
+		c.OutputFormat = "markdown"
+	case "org":
+		c.OutputFormat = "org"
+	case "diary":
+		c.OutputFormat = "diary"
+		// Automatically enable single file output for diary format
+		// Emacs diary traditionally uses a single diary file
+		c.SingleFileOutput = true
+		if c.SingleFileName == "" || c.SingleFileName == "calendar.md" || c.SingleFileName == "calendar.org" {
+			c.SingleFileName = "diary"
+		}
+	case "":
+		// Default to markdown if not set
+		c.OutputFormat = "markdown"
+	default:
+		fmt.Printf("Warning: unknown output format '%s', using markdown\n", c.OutputFormat)
+		c.OutputFormat = "markdown"
+	}
 }
 
 // ApplyObsidianTasksPreset enables all formatting options that work well with Obsidian tasks

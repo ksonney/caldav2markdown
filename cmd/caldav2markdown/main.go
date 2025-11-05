@@ -13,6 +13,7 @@ import (
 	"caldav2markdown/pkg/caldav"
 	"caldav2markdown/pkg/config"
 	"caldav2markdown/pkg/database"
+	"caldav2markdown/pkg/diary"
 	icsource "caldav2markdown/pkg/ics"
 	"caldav2markdown/pkg/markdown"
 	"caldav2markdown/pkg/org"
@@ -79,7 +80,7 @@ func main() {
 		useCalendarTags        = flag.Bool("calendar-tags", false, "Add calendar name tags to events and tasks")
 		singleFileOutput       = flag.Bool("single-file", false, "Generate a single file instead of separate daily files")
 		singleFileName         = flag.String("single-file-name", "calendar.md", "Name of the single output file when using -single-file")
-		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown or org")
+		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown, org, or diary")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -205,10 +206,14 @@ func main() {
 			cfg.OutputFormat = "org"
 		case "markdown", "md":
 			cfg.OutputFormat = "markdown"
+		case "diary":
+			cfg.OutputFormat = "diary"
 		default:
-			fmt.Printf("Invalid output format: %s (expected: markdown or org)\n", *outputFormat)
+			fmt.Printf("Invalid output format: %s (expected: markdown, org, or diary)\n", *outputFormat)
 			os.Exit(1)
 		}
+		// Re-normalize to apply format-specific defaults (like single-file for diary)
+		cfg.NormalizeOutputFormat()
 	}
 	if *useServerSideFiltering {
 		cfg.UseServerSideFiltering = true
@@ -386,7 +391,7 @@ func main() {
 		fmt.Printf("  -config           Configuration file path (default: %s)\n", defaultConfigPath)
 		fmt.Println("  -start            Start date for events (YYYY-MM-DD, default: 2000-01-01)")
 		fmt.Println("  -end              End date for events (YYYY-MM-DD, default: 2 years from now)")
-		fmt.Println("  -output-format    Output format: markdown or org (default: markdown)")
+		fmt.Println("  -output-format    Output format: markdown, org, or diary (default: markdown)")
 		fmt.Println("  -emoji            Use 📅 emoji for due dates in tasks")
 		fmt.Println("  -hashtags         Add #event and #task hashtags")
 		fmt.Println("  -frontmatter      Add YAML frontmatter to markdown files")
@@ -637,6 +642,29 @@ func main() {
 		fmt.Println("Generating daily Org files...")
 		if err := org.GenerateDailyOrgFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
 			fmt.Printf("\nFailed to generate daily Org files: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println() // New line after progress
+	} else if cfg.OutputFormat == "diary" {
+		// Emacs diary output
+		if cfg.SingleFileOutput {
+			fmt.Println("Generating single diary file output...")
+			outputPath := filepath.Join(cfg.Output, cfg.SingleFileName)
+			// Don't add suffix if filename already ends with "diary" or has no extension
+			// Emacs diary files traditionally have no extension
+			if err := diary.GenerateSingleDiaryFile(outputPath, eventMarkdowns, todoMarkdowns, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.UseCalendarTags, cfg.EventCheckboxes, progressCallback); err != nil {
+				fmt.Printf("\nFailed to generate single diary file: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println() // New line after progress
+			fmt.Printf("Successfully created %s with %d events and %d tasks\n", outputPath, len(sourcedEvents), len(sourcedTodos))
+			return
+		}
+
+		// Generate monthly diary files (Emacs diary convention)
+		fmt.Println("Generating monthly diary files...")
+		if err := diary.GenerateDailyDiaryFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.UseCalendarTags, cfg.EventCheckboxes, progressCallback); err != nil {
+			fmt.Printf("\nFailed to generate monthly diary files: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println() // New line after progress

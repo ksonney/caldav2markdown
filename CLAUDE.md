@@ -69,6 +69,7 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **`pkg/caldav/discovery.go`**: CalDAV calendar discovery implementation using PROPFIND requests for multi-calendar support
 - **`pkg/markdown/formatter.go`**: Converts iCalendar components to Markdown format, handles both VEVENT and VTODO items with YAML frontmatter support
 - **`pkg/org/formatter.go`**: Converts iCalendar components to Emacs Org mode format, handles both VEVENT and VTODO items with Org properties drawer support
+- **`pkg/diary/formatter.go`**: Converts iCalendar components to Emacs diary format, traditional calendar format for GNU Emacs with simple date-based entries
 - **`pkg/config/config.go`**: Configuration management supporting both environment files and CLI flags, with multi-calendar and OAuth options
 - **`pkg/rrule/rrule.go`**: Recurrence rule (RRULE) parsing and recurring event expansion engine
 - **`pkg/oauth/client.go`**: Google OAuth 2.0 client implementation for CalDAV authentication
@@ -132,14 +133,14 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Smart Caching**: Intelligent file merging reduces redundant processing
 
 #### Output & Formatting
-- **Output Format Selection**: Choose between Markdown (`.md`) or Org mode (`.org`) output formats (controlled by `OUTPUT_FORMAT` config)
+- **Output Format Selection**: Choose between Markdown (`.md`), Org mode (`.org`), or Emacs diary format (controlled by `OUTPUT_FORMAT` config)
 - **Directory Structure**: Daily files organized in YYYY/MM directory tree, with zero-date events in `0001/01/`
 - **Daily Aggregation**: Events and tasks are grouped by date and saved as daily files with list format, including separate sections for all-day events, scheduled events, and tasks
 - **Metadata Support**:
   - **Markdown**: Optional YAML frontmatter with metadata
   - **Org Mode**: Org properties drawer with metadata, #+TITLE directive
 - **Flexible Formatting Options**:
-  - **Output Format**: Markdown (default) or Org mode (controlled by `OUTPUT_FORMAT` config)
+  - **Output Format**: Markdown (default), Org mode, or Emacs diary (controlled by `OUTPUT_FORMAT` config)
   - Optional 📅 emoji for due dates (controlled by `USE_DUE_DATE_EMOJI` config, Markdown only)
   - Optional #event and #task hashtags or :event: :task: tags (controlled by `USE_HASHTAGS` config)
   - **Calendar Alias Hashtags/Tags**: Automatic hashtags/tags from calendar names/aliases (controlled by `USE_CALENDAR_TAGS` config)
@@ -176,6 +177,30 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 - **Time Format**: Uses Org mode native date/time format `<YYYY-MM-DD Day HH:MM>` for all timestamps
 - **Multi-day Events**: Properly formatted with range syntax `<2024-11-05 Tue 09:00>--<2024-11-06 Wed 17:00>`
 - **Configuration**: Enable with `OUTPUT_FORMAT=org` environment variable, `-output-format org` CLI flag, or `output_format: org` in YAML config
+
+#### Emacs Diary Support
+- **Full Emacs Diary Output**: Traditional Emacs calendar diary format support, compatible with GNU Emacs calendar-mode and diary features
+- **Diary Format Syntax**:
+  - Date format: `MM/DD/YYYY` (standard American format used by Emacs diary)
+  - **Timed Events**: `12/22/2024 10:30am-11:30am Meeting with team @ Location [Calendar] #event`
+  - **All-day Events**: `12/22/2024 Holiday party @ Venue [Personal] #event`
+  - **Multi-day Events**: `12/22/2024 9:00am-12/23/2024 5:00pm Conference`
+  - **Tasks with Due Dates**: `12/25/2024 Complete project report [Work] #task`
+  - **Tasks without Due Dates**: `%%(diary-entry "TODO") [DONE] Task title [Calendar] #task`
+  - **Undated Events**: `%%(diary-remind '(diary-entry "TBD") 0) Event title @ Location`
+  - **Completion Markers**: `[DONE]` prefix for completed tasks and past events (when `EVENT_CHECKBOXES` enabled)
+  - **UID Tracking**: `{uid:...}` suffix for deduplication (hidden metadata)
+- **Diary File Modes**:
+  - **Single Diary File** (default): All entries in one consolidated `diary` file, automatically enabled for diary format
+  - **Monthly Diary Files**: Separate files for each month `YYYY/MM-diary` (only when `-single-file=false` is explicitly set)
+  - **Todo Diary File**: Tasks without due dates in `todo-diary` file
+- **Smart Merging**: Intelligent merging with existing diary files, preserves custom entries and comments
+- **Chronological Sorting**: Entries automatically sorted by date within each file for easy reading
+- **Description Support**: Optional indented descriptions on continuation lines (controlled by `IGNORE_DESCRIPTIONS`)
+- **Calendar Tags**: Optional calendar name and category tags using `#tag` syntax (controlled by `USE_HASHTAGS` and `USE_CALENDAR_TAGS`)
+- **Comment Headers**: Auto-generated header comments in new files explaining diary format
+- **Emacs Integration**: Files can be directly used with Emacs `M-x calendar` and `M-x diary` commands
+- **Configuration**: Enable with `OUTPUT_FORMAT=diary` environment variable, `-output-format diary` CLI flag, or `output_format: diary` in YAML config
 
 #### Multi-Calendar Support
 - **Calendar Discovery**: Automatic discovery of all calendar collections on a CalDAV server
@@ -493,6 +518,52 @@ DISCOVER_CALENDARS=true
 CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work
 ```
 
+#### Emacs Diary Output Format
+```bash
+# Output in Emacs diary format for use with GNU Emacs calendar
+# Single file mode is automatically enabled for diary format
+OUTPUT_FORMAT=diary
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OUTPUT_DIR=~/emacs
+USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
+EVENT_CHECKBOXES=true
+IGNORE_DESCRIPTIONS=false
+# Output will be: ~/emacs/diary
+```
+
+#### Emacs Diary with Custom Filename
+```bash
+# Single file mode is automatic, but you can customize the filename
+OUTPUT_FORMAT=diary
+SINGLE_FILE_NAME=my-calendar
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OUTPUT_DIR=~/.emacs.d
+USE_HASHTAGS=true
+EVENT_CHECKBOXES=true
+# Output will be: ~/.emacs.d/my-calendar
+```
+
+#### Emacs Diary for Calendar Integration
+```bash
+# Optimized configuration for Emacs calendar/diary integration
+OUTPUT_FORMAT=diary
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OUTPUT_DIR=~/.emacs.d/diary
+USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
+EVENT_CHECKBOXES=true
+IGNORE_DESCRIPTIONS=true
+DISCOVER_CALENDARS=true
+CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work
+```
+
 ### Multi-Source Configuration Examples
 
 The application supports combining multiple calendar sources in a single configuration file. Each source is configured using indexed environment variables with the pattern `SOURCE_<index>_<field>` or `SOURCE_<index>_<type>_<field>`.
@@ -768,6 +839,52 @@ start_date: 2024-01-01T00:00:00Z
 end_date: 2025-12-31T23:59:59Z
 use_hashtags: true
 event_checkboxes: true
+
+sources:
+  - type: caldav
+    name: My Calendar
+    caldav:
+      url: https://your-server.com/caldav/calendars/user/calendar/
+      username: user
+      password: password
+```
+
+#### Emacs Diary Output Format
+```yaml
+---
+# Emacs diary format output
+# Single file mode is automatically enabled for diary format
+output_format: diary
+output: ~/emacs
+start_date: 2024-01-01T00:00:00Z
+end_date: 2024-12-31T23:59:59Z
+use_hashtags: true
+use_calendar_tags: true
+event_checkboxes: true
+ignore_descriptions: false
+# Output will be: ~/emacs/diary
+
+sources:
+  - type: caldav
+    name: Personal Calendar
+    caldav:
+      url: https://your-server.com/caldav/calendars/user/calendar/
+      username: user
+      password: password
+```
+
+#### Emacs Diary with Custom Filename
+```yaml
+---
+# Single file mode is automatic, but you can customize the filename
+output_format: diary
+output: ~/.emacs.d
+single_file_name: my-calendar
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+use_hashtags: true
+event_checkboxes: true
+# Output will be: ~/.emacs.d/my-calendar
 
 sources:
   - type: caldav

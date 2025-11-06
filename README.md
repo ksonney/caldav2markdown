@@ -7,6 +7,7 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 ### Latest Enhancements (2025)
 - **📓 Emacs Diary Output**: Traditional Emacs diary format support with automatic single-file mode, perfect for GNU Emacs calendar integration
 - **📝 Org Mode Output**: Full Emacs Org mode format support with native scheduling, TODO states, properties drawers, and tags
+- **🔮 Org-Diary Format**: Hybrid format combining Org mode structure with Emacs diary sexp expressions for advanced date handling
 - **💾 SQLite Database Storage**: Optional database for event/todo tracking, deduplication, and change detection with smart updates
 - **🚫 Ignore Declined Events**: Automatically skip events you've declined (STATUS=CANCELLED or PARTSTAT=DECLINED) to keep your calendar clean
 - **🎯 Obsidian Tasks Emoji Format**: Added support for Obsidian Tasks emoji format with 🛫 for start times and ✅ for end times
@@ -46,7 +47,7 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 - **Parallel Processing**: Concurrent calendar processing with error handling
 
 ### 📁 Output & Organization
-- **Multiple Output Formats**: Choose between Markdown (`.md`), Emacs Org mode (`.org`), or Emacs diary format
+- **Multiple Output Formats**: Choose between Markdown (`.md`), Emacs Org mode (`.org`), Org-diary (`.org` with diary sexps), or Emacs diary format
 - **Daily Aggregation**: Events and tasks organized in `YYYY-MM-DD.md` or `YYYY-MM-DD.org` files (Markdown/Org mode)
 - **Single File Mode**: Optional consolidated output in one file instead of daily files
 - **Smart Todo Management**: Tasks without due dates saved to separate `todo.md` or `todo.org` file
@@ -303,6 +304,17 @@ bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "
   -output-format org -single-file -single-file-name calendar.org \
   -hashtags -event-checkboxes -output ./org-calendar
 
+# Org-diary format (Org mode with diary sexp expressions)
+# Single file mode is automatically enabled for org-diary format
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -output-format org-diary -hashtags -calendar-tags -event-checkboxes \
+  -output ~/org/diary-calendars
+
+# Org-diary with custom filename
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -output-format org-diary -single-file-name my-calendar.org \
+  -hashtags -event-checkboxes -output ./org-diary
+
 # Emacs diary output (automatic single file mode)
 bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
   -output-format diary -hashtags -calendar-tags -event-checkboxes \
@@ -379,8 +391,8 @@ bin/caldav2markdown -test
 
 **Output and Formatting:**
 - `-output`: Output directory for files (default: ./events)
-- `-output-format`: Output format: "markdown", "org", or "diary" (default: markdown)
-- `-single-file`: Generate single file instead of daily files (automatic for diary format)
+- `-output-format`: Output format: "markdown", "org", "org-diary", or "diary" (default: markdown)
+- `-single-file`: Generate single file instead of daily files (automatic for diary and org-diary formats)
 - `-single-file-name`: Name for single file output (default: calendar.md, calendar.org, or diary)
 - `-config`: Configuration file path (default: ~/.config/caldav2markdown/config.yaml)
 - `-emoji`: Use 📅 emoji for due dates in tasks (Markdown only)
@@ -735,14 +747,13 @@ bin/caldav2markdown -output-format org
 - **Properties Drawer**: Metadata stored in `:PROPERTIES:` drawer (ID, LOCATION, CALENDAR, STATUS, CATEGORIES)
 - **Tags**: Org-style tags `:event:work:personal:` instead of hashtags
 - **Priority Levels**: iCal priorities automatically mapped to Org priorities [#A], [#B], [#C]
+- **Clean Output**: No section headers or date headers - only individual event/task items are included for a streamlined file structure
 
 #### Example Org Mode Output
 
 **Daily Org File** (`2024-11-05.org`):
 ```org
 #+TITLE: Tuesday, November 5, 2024
-
-* All Day Events
 
 # uid:company-holiday-123
 ** TODO Company Holiday :event:work:
@@ -752,8 +763,6 @@ bin/caldav2markdown -output-format org
    :CALENDAR: Work
    :STATUS: CONFIRMED
    :END:
-
-* Scheduled Events
 
 # uid:team-meeting-456
 ** TODO Team Meeting :event:work:
@@ -778,8 +787,6 @@ bin/caldav2markdown -output-format org
    :END:
    Quarterly project progress review
 
-* Tasks
-
 # uid:complete-report-abc
 ** TODO Complete Report [#A] :task:work:
    DEADLINE: <2024-11-05 Tue>
@@ -796,8 +803,6 @@ bin/caldav2markdown -output-format org
 **Todo Org File** (`todo.org`):
 ```org
 #+TITLE: Tasks Without Due Date
-
-* Tasks
 
 # uid:research-framework-123
 ** TODO Research new framework [#B] :task:personal:
@@ -831,43 +836,31 @@ bin/caldav2markdown -output-format org -single-file -single-file-name calendar.o
 ```org
 #+TITLE: Calendar
 
-* Monday, November 4, 2024
-
-** All Day Events
-
 # uid:event-123
-*** TODO Holiday :event:work:
-    SCHEDULED: <2024-11-04 Mon>
-    :PROPERTIES:
-    :ID: event-123
-    :CALENDAR: Work
-    :END:
-
-** Scheduled Events
+** TODO Holiday :event:work:
+   SCHEDULED: <2024-11-04 Mon>
+   :PROPERTIES:
+   :ID: event-123
+   :CALENDAR: Work
+   :END:
 
 # uid:meeting-456
-*** DONE Morning Meeting :event:work:
-    SCHEDULED: <2024-11-04 Mon 09:00-10:00>
-    :PROPERTIES:
-    :ID: meeting-456
-    :LOCATION: Room A
-    :CALENDAR: Work
-    :END:
-
-* Tuesday, November 5, 2024
-
-** Scheduled Events
+** DONE Morning Meeting :event:work:
+   SCHEDULED: <2024-11-04 Mon 09:00-10:00>
+   :PROPERTIES:
+   :ID: meeting-456
+   :LOCATION: Room A
+   :CALENDAR: Work
+   :END:
 
 # uid:meeting-789
-*** TODO Afternoon Meeting :event:personal:
-    SCHEDULED: <2024-11-05 Tue 14:00-15:00>
-    :PROPERTIES:
-    :ID: meeting-789
-    :LOCATION: Coffee Shop
-    :CALENDAR: Personal
-    :END:
-
-* Tasks Without Due Date
+** TODO Afternoon Meeting :event:personal:
+   SCHEDULED: <2024-11-05 Tue 14:00-15:00>
+   :PROPERTIES:
+   :ID: meeting-789
+   :LOCATION: Coffee Shop
+   :CALENDAR: Personal
+   :END:
 
 # uid:task-abc
 ** TODO General Task :task:work:

@@ -80,7 +80,7 @@ func main() {
 		useCalendarTags        = flag.Bool("calendar-tags", false, "Add calendar name tags to events and tasks")
 		singleFileOutput       = flag.Bool("single-file", false, "Generate a single file instead of separate daily files")
 		singleFileName         = flag.String("single-file-name", "calendar.md", "Name of the single output file when using -single-file")
-		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown, org, or diary")
+		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown, org, org-diary, or diary")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -208,8 +208,10 @@ func main() {
 			cfg.OutputFormat = "markdown"
 		case "diary":
 			cfg.OutputFormat = "diary"
+		case "org-diary", "orgdiary":
+			cfg.OutputFormat = "org-diary"
 		default:
-			fmt.Printf("Invalid output format: %s (expected: markdown, org, or diary)\n", *outputFormat)
+			fmt.Printf("Invalid output format: %s (expected: markdown, org, org-diary, or diary)\n", *outputFormat)
 			os.Exit(1)
 		}
 		// Re-normalize to apply format-specific defaults (like single-file for diary)
@@ -391,7 +393,7 @@ func main() {
 		fmt.Printf("  -config           Configuration file path (default: %s)\n", defaultConfigPath)
 		fmt.Println("  -start            Start date for events (YYYY-MM-DD, default: 2000-01-01)")
 		fmt.Println("  -end              End date for events (YYYY-MM-DD, default: 2 years from now)")
-		fmt.Println("  -output-format    Output format: markdown, org, or diary (default: markdown)")
+		fmt.Println("  -output-format    Output format: markdown, org, org-diary, or diary (default: markdown)")
 		fmt.Println("  -emoji            Use 📅 emoji for due dates in tasks")
 		fmt.Println("  -hashtags         Add #event and #task hashtags")
 		fmt.Println("  -frontmatter      Add YAML frontmatter to markdown files")
@@ -642,6 +644,30 @@ func main() {
 		fmt.Println("Generating daily Org files...")
 		if err := org.GenerateDailyOrgFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
 			fmt.Printf("\nFailed to generate daily Org files: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println() // New line after progress
+	} else if cfg.OutputFormat == "org-diary" {
+		// Org mode with diary sexp output
+		if cfg.SingleFileOutput {
+			fmt.Println("Generating single Org file output (org-diary format)...")
+			outputPath := filepath.Join(cfg.Output, cfg.SingleFileName)
+			if !strings.HasSuffix(outputPath, ".org") {
+				outputPath = strings.TrimSuffix(outputPath, filepath.Ext(outputPath)) + ".org"
+			}
+			if err := org.GenerateSingleOrgDiaryFile(outputPath, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+				fmt.Printf("\nFailed to generate single Org file (org-diary format): %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println() // New line after progress
+			fmt.Printf("Successfully created %s with %d events and %d tasks (org-diary format)\n", outputPath, len(sourcedEvents), len(sourcedTodos))
+			return
+		}
+
+		// Generate daily Org diary files
+		fmt.Println("Generating daily Org files (org-diary format)...")
+		if err := org.GenerateDailyOrgDiaryFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+			fmt.Printf("\nFailed to generate daily Org files (org-diary format): %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println() // New line after progress

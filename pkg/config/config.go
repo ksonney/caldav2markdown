@@ -449,6 +449,8 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 				config.OutputFormat = "org"
 			case "diary":
 				config.OutputFormat = "diary"
+			case "org-diary", "orgdiary":
+				config.OutputFormat = "org-diary"
 			default:
 				fmt.Printf("Warning: unknown output format '%s', using markdown\n", value)
 				config.OutputFormat = "markdown"
@@ -738,6 +740,14 @@ func (c *Config) NormalizeOutputFormat() {
 		c.SingleFileOutput = true
 		if c.SingleFileName == "" || c.SingleFileName == "calendar.md" || c.SingleFileName == "calendar.org" {
 			c.SingleFileName = "diary"
+		}
+	case "org-diary", "orgdiary":
+		c.OutputFormat = "org-diary"
+		// Automatically enable single file output for org-diary format
+		// Org-diary works best as a single file for diary sexp integration
+		c.SingleFileOutput = true
+		if c.SingleFileName == "" || c.SingleFileName == "calendar.md" || c.SingleFileName == "diary" {
+			c.SingleFileName = "calendar.org"
 		}
 	case "":
 		// Default to markdown if not set

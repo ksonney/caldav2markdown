@@ -169,14 +169,44 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
   - **Tags**: Org tags syntax `:event:work:personal:` instead of hashtags
   - **Priority Levels**: iCal priorities 1-3 → `[#A]`, 4-6 → `[#B]`, 7-9 → `[#C]`
   - **UID Comments**: `# uid:...` comments for deduplication tracking
+  - **Clean Output**: No section headers (like "* All Day Events", "* Scheduled Events", "* Tasks") - only individual event/task items are included
 - **Org File Modes**:
   - **Daily Org Files** (default): Separate files for each date `YYYY/MM/YYYY-MM-DD.org`
-  - **Single Org File**: All entries in one file with date-based level 1 headings
-  - **Todo Org File**: Tasks without due dates in `todo.org` with dedicated section
+  - **Single Org File**: All entries in one file without date headers (all items at level 2)
+  - **Todo Org File**: Tasks without due dates in `todo.org` with no section headers
 - **Smart Merging**: Intelligent merging with existing Org files, preserves custom content and user-added sections
 - **Time Format**: Uses Org mode native date/time format `<YYYY-MM-DD Day HH:MM>` for all timestamps
 - **Multi-day Events**: Properly formatted with range syntax `<2024-11-05 Tue 09:00>--<2024-11-06 Wed 17:00>`
 - **Configuration**: Enable with `OUTPUT_FORMAT=org` environment variable, `-output-format org` CLI flag, or `output_format: org` in YAML config
+
+#### Org-Diary Support
+- **Full Org Mode with Diary Sexp Output**: Combines Org mode structure with Emacs diary sexp expressions for dates
+- **Org-Diary Format**:
+  - Events and tasks use `** TODO/DONE` headlines like standard Org mode
+  - **Date Representation**: Uses diary sexp expressions for flexible date handling
+  - **Timed Events**: `SCHEDULED: <%diary-date 12 22 2024> 09:00-10:00` for specific dates with times
+  - **All-day Events**: `SCHEDULED: <%diary-date 12 22 2024>` for all-day events
+  - **Multi-day Events**: `SCHEDULED: <%diary-block 12 22 2024 12 25 2024> 09:00-17:00` for date ranges
+  - **Task Deadlines**: `DEADLINE: <%diary-date 12 25 2024>` for tasks with due dates
+  - **Undated Items**: `SCHEDULED: <%%(diary-remind '(diary-entry "TBD") 0)>` for events without dates
+  - **Tasks without Due Dates**: `DEADLINE: <%%(diary-entry "TODO")>` for undated tasks
+  - **Properties Drawer**: `:PROPERTIES:` drawer with ID, LOCATION, CALENDAR, STATUS, CATEGORIES (same as Org mode)
+  - **Tags**: Org tags syntax `:event:work:personal:` instead of hashtags
+  - **Priority Levels**: iCal priorities 1-3 → `[#A]`, 4-6 → `[#B]`, 7-9 → `[#C]`
+  - **UID Comments**: `# uid:...` comments for deduplication tracking
+  - **Clean Output**: No section headers (like "* All Day Events", "* Scheduled Events", "* Tasks") - only individual event/task items are included
+- **Org-Diary File Modes**:
+  - **Single Org-Diary File** (default): All entries in one file without date headers (all items at level 2), automatically enabled for org-diary format
+  - **Daily Org-Diary Files**: Separate files for each date `YYYY/MM/YYYY-MM-DD.org` with org-diary format (only when `-single-file=false` is explicitly set)
+  - **Todo Org-Diary File**: Tasks without due dates in `todo.org` with diary sexp format and no section headers
+- **Benefits of Org-Diary Format**:
+  - **Flexible Date Expressions**: Diary sexps allow for complex recurring patterns and conditional dates
+  - **Emacs Integration**: Works with both Org agenda and Emacs diary systems
+  - **Advanced Scheduling**: Supports diary-anniversary, diary-float, diary-cyclic, and other advanced diary functions
+  - **Symbolic Dates**: Represents dates in a form that can be programmatically processed by Emacs Lisp
+- **Smart Merging**: Intelligent merging with existing Org files, preserves custom content and user-added sections
+- **Compatibility**: Files are valid Org mode documents and can be used with standard Org mode commands
+- **Configuration**: Enable with `OUTPUT_FORMAT=org-diary` environment variable, `-output-format org-diary` CLI flag, or `output_format: org-diary` in YAML config
 
 #### Emacs Diary Support
 - **Full Emacs Diary Output**: Traditional Emacs calendar diary format support, compatible with GNU Emacs calendar-mode and diary features
@@ -211,6 +241,7 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 ### Recent Major Updates
 
 #### Latest Technical Enhancements (2025)
+- **Org-Diary Output Format**: New hybrid format combining Org mode structure with Emacs diary sexp expressions for flexible date handling. Supports both daily and single-file output modes with full Org mode and diary system integration.
 - **Calendar Discovery De-duplication**: Automatic removal of duplicate calendar collections using normalized URL comparison (case-insensitive, trailing slash handling) to prevent processing the same calendar multiple times
 - **Smart URL Filtering**: Intelligent filtering of non-calendar endpoints including ICS files, XML exports, and download URLs to focus only on proper CalDAV calendar collections
 - **Enhanced CalDAV Discovery**: Improved calendar collection detection with fallback to supported calendar components when resource type is missing or blank, includes comprehensive multistatus response handling with proper error reporting
@@ -516,6 +547,53 @@ EVENT_CHECKBOXES=true
 IGNORE_DESCRIPTIONS=false
 DISCOVER_CALENDARS=true
 CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work
+```
+
+#### Org-Diary Output Format
+```bash
+# Output in Org mode format with diary sexp expressions
+# Single file mode is automatically enabled for org-diary format
+OUTPUT_FORMAT=org-diary
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OUTPUT_DIR=./org-diary-calendar
+USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
+EVENT_CHECKBOXES=true
+IGNORE_DESCRIPTIONS=true
+# Output will be: ./org-diary-calendar/calendar.org
+```
+
+#### Org-Diary with Custom Filename
+```bash
+# Single file mode is automatic, but you can customize the filename
+OUTPUT_FORMAT=org-diary
+SINGLE_FILE_NAME=my-calendar.org
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OUTPUT_DIR=./org-diary
+USE_HASHTAGS=true
+EVENT_CHECKBOXES=true
+```
+
+#### Org-Diary for Emacs Dual Integration
+```bash
+# Optimized for both Org-agenda and Emacs diary integration
+# Single file mode is automatically enabled for org-diary format
+OUTPUT_FORMAT=org-diary
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OUTPUT_DIR=~/org/diary-calendars
+USE_HASHTAGS=true
+USE_CALENDAR_TAGS=true
+EVENT_CHECKBOXES=true
+IGNORE_DESCRIPTIONS=false
+DISCOVER_CALENDARS=true
+CALENDAR_ALIASES=Personal Calendar:Personal,Work Calendar:Work
+# Output will be: ~/org/diary-calendars/calendar.org
 ```
 
 #### Emacs Diary Output Format
@@ -835,6 +913,51 @@ output_format: org
 output: ./org-calendar
 single_file: true
 single_file_name: calendar.org
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+use_hashtags: true
+event_checkboxes: true
+
+sources:
+  - type: caldav
+    name: My Calendar
+    caldav:
+      url: https://your-server.com/caldav/calendars/user/calendar/
+      username: user
+      password: password
+```
+
+#### Org-Diary Output Format
+```yaml
+---
+# Org mode with diary sexp expressions
+# Single file mode is automatically enabled for org-diary format
+output_format: org-diary
+output: ./org-diary-calendar
+start_date: 2024-01-01T00:00:00Z
+end_date: 2024-12-31T23:59:59Z
+use_hashtags: true
+use_calendar_tags: true
+event_checkboxes: true
+ignore_descriptions: true
+# Output will be: ./org-diary-calendar/calendar.org
+
+sources:
+  - type: caldav
+    name: Personal Calendar
+    caldav:
+      url: https://your-server.com/caldav/calendars/user/calendar/
+      username: user
+      password: password
+```
+
+#### Org-Diary with Custom Filename
+```yaml
+---
+# Single file mode is automatic, but you can customize the filename
+output_format: org-diary
+output: ./org-diary
+single_file_name: my-calendar.org
 start_date: 2024-01-01T00:00:00Z
 end_date: 2025-12-31T23:59:59Z
 use_hashtags: true

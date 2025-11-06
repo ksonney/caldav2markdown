@@ -474,25 +474,22 @@ func generateMergedOrgContent(date string, existingContent *ExistingOrgContent, 
 		}
 	}
 
-	// Add all-day events section
+	// Add all-day events (no section header)
 	if len(allDayItems) > 0 {
-		sb.WriteString("* All Day Events\n\n")
 		for _, item := range allDayItems {
 			sb.WriteString(item)
 		}
 	}
 
-	// Add scheduled events section
+	// Add scheduled events (no section header)
 	if len(scheduledItems) > 0 {
-		sb.WriteString("* Scheduled Events\n\n")
 		for _, item := range scheduledItems {
 			sb.WriteString(item)
 		}
 	}
 
-	// Add tasks section
+	// Add tasks (no section header)
 	if len(taskItems) > 0 {
-		sb.WriteString("* Tasks\n\n")
 		for _, item := range taskItems {
 			sb.WriteString(item)
 		}
@@ -539,7 +536,6 @@ func GenerateTodoOrgFile(outputDir string, todos []markdown.TodoMarkdown, useDue
 	taskItems = smartDeduplicateOrg(taskItems)
 
 	if len(taskItems) > 0 {
-		sb.WriteString("* Tasks\n\n")
 		for _, item := range taskItems {
 			sb.WriteString(item)
 		}
@@ -703,6 +699,629 @@ func GenerateDailyOrgFiles(outputDir string, events []markdown.EventMarkdown, ta
 	return nil
 }
 
+// ToOrgDiaryEntry converts an event to Org mode format with diary sexp
+func (eo EventOrg) ToOrgDiaryEntry() string {
+	return eo.ToOrgDiaryEntryWithOptions(false, false, false, false, false)
+}
+
+// ToOrgDiaryEntryWithOptions converts an event to Org mode format with diary sexp and formatting options
+// Org diary sexp format uses Emacs diary expressions for dates
+// Example: %%(diary-date 12 22 2024) Event Title
+func (eo EventOrg) ToOrgDiaryEntryWithOptions(useHashtags, ignoreDescriptions, useCheckboxes, useCalendarTags, useObsidianEmojis bool) string {
+	var sb strings.Builder
+
+	// Add UID as comment for deduplication
+	if eo.UID != "" {
+		sb.WriteString(fmt.Sprintf("# uid:%s\n", eo.UID))
+	}
+
+	// Determine TODO state based on completion
+	todoState := "TODO"
+	if useCheckboxes && eo.IsPastEvent() {
+		todoState = "DONE"
+	}
+
+	// Start with headline (event title)
+	if useCheckboxes {
+		sb.WriteString(fmt.Sprintf("** %s %s", todoState, eo.Title))
+	} else {
+		sb.WriteString(fmt.Sprintf("** %s", eo.Title))
+	}
+
+	// Add tags
+	var tags []string
+	if useHashtags {
+		tags = append(tags, "event")
+	}
+	if useCalendarTags && eo.CalendarOriginal != "" {
+		calendarTag := sanitizeForOrgTag(eo.CalendarOriginal)
+		if calendarTag != "" {
+			tags = append(tags, calendarTag)
+		}
+	}
+	if len(tags) > 0 {
+		sb.WriteString(fmt.Sprintf(" :%s:", strings.Join(tags, ":")))
+	}
+	sb.WriteString("\n")
+
+	// Add scheduling information using diary sexp
+	if !eo.StartTime.IsZero() {
+		if eo.AllDay {
+			// All-day event using diary-date
+			sb.WriteString(fmt.Sprintf("   SCHEDULED: <%%diary-date %s>\n", eo.StartTime.Format("1 2 2006")))
+		} else {
+			// Timed event with time range using diary-date
+			if !eo.EndTime.IsZero() && !eo.EndTime.Equal(eo.StartTime) {
+				// Check if event spans multiple days
+				if eo.StartTime.Format("2006-01-02") != eo.EndTime.Format("2006-01-02") {
+					// Multi-day event - use diary-block
+					sb.WriteString(fmt.Sprintf("   SCHEDULED: <%%diary-block %s %s> %s-%s\n",
+						eo.StartTime.Format("1 2 2006"),
+						eo.EndTime.Format("1 2 2006"),
+						eo.StartTime.Format("15:04"),
+						eo.EndTime.Format("15:04")))
+				} else {
+					// Same day event with time range
+					sb.WriteString(fmt.Sprintf("   SCHEDULED: <%%diary-date %s> %s-%s\n",
+						eo.StartTime.Format("1 2 2006"),
+						eo.StartTime.Format("15:04"),
+						eo.EndTime.Format("15:04")))
+				}
+			} else {
+				sb.WriteString(fmt.Sprintf("   SCHEDULED: <%%diary-date %s> %s\n",
+					eo.StartTime.Format("1 2 2006"),
+					eo.StartTime.Format("15:04")))
+			}
+		}
+	} else {
+		// Events with no date use diary-remind
+		sb.WriteString("   SCHEDULED: <%%(diary-remind '(diary-entry \"TBD\") 0)>\n")
+	}
+
+	// Add properties drawer
+	sb.WriteString("   :PROPERTIES:\n")
+	if eo.UID != "" {
+		sb.WriteString(fmt.Sprintf("   :ID: %s\n", eo.UID))
+	}
+	if eo.Location != "" {
+		sb.WriteString(fmt.Sprintf("   :LOCATION: %s\n", eo.Location))
+	}
+	if eo.Calendar != "" {
+		sb.WriteString(fmt.Sprintf("   :CALENDAR: %s\n", eo.Calendar))
+	}
+	if eo.Status != "" {
+		sb.WriteString(fmt.Sprintf("   :STATUS: %s\n", eo.Status))
+	}
+	if len(eo.Categories) > 0 {
+		sb.WriteString(fmt.Sprintf("   :CATEGORIES: %s\n", strings.Join(eo.Categories, ", ")))
+	}
+	sb.WriteString("   :END:\n")
+
+	// Add description if not ignored
+	if !ignoreDescriptions && eo.Description != "" {
+		sb.WriteString(fmt.Sprintf("   %s\n", strings.ReplaceAll(eo.Description, "\n", "\n   ")))
+	}
+
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// ToOrgDiaryEntry converts a todo to Org mode format with diary sexp
+func (to TodoOrg) ToOrgDiaryEntry() string {
+	return to.ToOrgDiaryEntryWithOptions(false, false, false, false)
+}
+
+// ToOrgDiaryEntryWithOptions converts a todo to Org mode format with diary sexp and formatting options
+func (to TodoOrg) ToOrgDiaryEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags bool) string {
+	var sb strings.Builder
+
+	// Add UID as comment for deduplication
+	if to.UID != "" {
+		sb.WriteString(fmt.Sprintf("# uid:%s\n", to.UID))
+	}
+
+	// Determine TODO state
+	todoState := "TODO"
+	if to.Completed {
+		todoState = "DONE"
+	}
+
+	// Start with headline (task title)
+	sb.WriteString(fmt.Sprintf("** %s %s", todoState, to.Title))
+
+	// Add priority if set
+	if to.Priority != "" && to.Priority != "0" {
+		// Org mode priorities: [#A], [#B], [#C]
+		// Map iCal priorities (1-9) to Org priorities
+		var orgPriority string
+		switch to.Priority {
+		case "1", "2", "3":
+			orgPriority = "[#A]"
+		case "4", "5", "6":
+			orgPriority = "[#B]"
+		case "7", "8", "9":
+			orgPriority = "[#C]"
+		}
+		if orgPriority != "" {
+			sb.WriteString(" " + orgPriority)
+		}
+	}
+
+	// Add tags
+	var tags []string
+	if useHashtags {
+		tags = append(tags, "task")
+	}
+	if useCalendarTags && to.CalendarOriginal != "" {
+		calendarTag := sanitizeForOrgTag(to.CalendarOriginal)
+		if calendarTag != "" {
+			tags = append(tags, calendarTag)
+		}
+	}
+	if len(tags) > 0 {
+		sb.WriteString(fmt.Sprintf(" :%s:", strings.Join(tags, ":")))
+	}
+	sb.WriteString("\n")
+
+	// Add deadline if set using diary sexp
+	if !to.DueDate.IsZero() {
+		sb.WriteString(fmt.Sprintf("   DEADLINE: <%%diary-date %s>\n", to.DueDate.Format("1 2 2006")))
+	} else {
+		// Tasks without due dates use diary-entry
+		sb.WriteString("   DEADLINE: <%%(diary-entry \"TODO\")>\n")
+	}
+
+	// Add properties drawer
+	sb.WriteString("   :PROPERTIES:\n")
+	if to.UID != "" {
+		sb.WriteString(fmt.Sprintf("   :ID: %s\n", to.UID))
+	}
+	if to.Calendar != "" {
+		sb.WriteString(fmt.Sprintf("   :CALENDAR: %s\n", to.Calendar))
+	}
+	if to.Status != "" {
+		sb.WriteString(fmt.Sprintf("   :STATUS: %s\n", to.Status))
+	}
+	if to.Priority != "" && to.Priority != "0" {
+		sb.WriteString(fmt.Sprintf("   :PRIORITY: %s\n", to.Priority))
+	}
+	if len(to.Categories) > 0 {
+		sb.WriteString(fmt.Sprintf("   :CATEGORIES: %s\n", strings.Join(to.Categories, ", ")))
+	}
+	sb.WriteString("   :END:\n")
+
+	// Add description if not ignored
+	if !ignoreDescriptions && to.Description != "" {
+		sb.WriteString(fmt.Sprintf("   %s\n", strings.ReplaceAll(to.Description, "\n", "\n   ")))
+	}
+
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// GenerateTodoOrgDiaryFile creates a todo.org file for tasks without due dates using diary sexp format
+func GenerateTodoOrgDiaryFile(outputDir string, todos []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags bool, progressCallback markdown.ProgressCallback) error {
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Generating todo.org with %d tasks (org-diary format)", len(todos)), 0, 1)
+	}
+
+	todoPath := filepath.Join(outputDir, "todo.org")
+
+	// Parse existing todo.org file if it exists
+	existingContent, err := parseExistingOrgFile(todoPath)
+	if err != nil {
+		return fmt.Errorf("failed to parse existing todo.org file: %v", err)
+	}
+
+	// Convert tasks to Org diary strings
+	var newTasks []string
+	for _, task := range todos {
+		todoOrg := TodoOrg{TodoMarkdown: task}
+		newTasks = append(newTasks, strings.TrimSpace(todoOrg.ToOrgDiaryEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags)))
+	}
+
+	// Generate merged content
+	var sb strings.Builder
+	if existingContent != nil && existingContent.Title != "" {
+		sb.WriteString(fmt.Sprintf("#+TITLE: %s\n\n", existingContent.Title))
+	} else {
+		sb.WriteString("#+TITLE: Todo (Org-Diary Format)\n\n")
+	}
+
+	// Merge tasks
+	var taskItems []string
+	if existingContent != nil {
+		taskItems = append(taskItems, existingContent.Tasks...)
+	}
+	taskItems = append(taskItems, newTasks...)
+	taskItems = smartDeduplicateOrg(taskItems)
+
+	if len(taskItems) > 0 {
+		for _, item := range taskItems {
+			sb.WriteString(item)
+		}
+	}
+
+	// Write to file
+	if err := writeOrgToFile(todoPath, sb.String()); err != nil {
+		return fmt.Errorf("failed to write todo.org file: %v", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback("Generated todo.org (org-diary format)", 1, 1)
+	}
+
+	return nil
+}
+
+// GenerateDailyOrgDiaryFiles creates daily Org files for events and tasks using diary sexp format
+func GenerateDailyOrgDiaryFiles(outputDir string, events []markdown.EventMarkdown, tasks []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback markdown.ProgressCallback) error {
+	// Group events by date
+	eventsByDate := make(map[string][]markdown.EventMarkdown)
+	tasksByDate := make(map[string][]markdown.TodoMarkdown)
+	var noDueDateTasks []markdown.TodoMarkdown
+
+	for _, event := range events {
+		var dateKey string
+		if event.StartTime.IsZero() {
+			dateKey = "0001-01-01"
+		} else {
+			dateKey = event.StartTime.Format("2006-01-02")
+		}
+		eventsByDate[dateKey] = append(eventsByDate[dateKey], event)
+	}
+
+	for _, task := range tasks {
+		if task.DueDate.IsZero() {
+			noDueDateTasks = append(noDueDateTasks, task)
+		} else {
+			dateKey := task.DueDate.Format("2006-01-02")
+			tasksByDate[dateKey] = append(tasksByDate[dateKey], task)
+		}
+	}
+
+	// Get all unique dates
+	allDates := make(map[string]bool)
+	for date := range eventsByDate {
+		allDates[date] = true
+	}
+	for date := range tasksByDate {
+		allDates[date] = true
+	}
+
+	datesList := make([]string, 0, len(allDates))
+	for date := range allDates {
+		datesList = append(datesList, date)
+	}
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Generating %d daily Org files (org-diary format)", len(datesList)), 0, len(datesList))
+	}
+
+	// Create a file for each date
+	for i, date := range datesList {
+		if progressCallback != nil {
+			if date == "0001-01-01" {
+				progressCallback("Processing items with no date", i+1, len(datesList))
+			} else {
+				progressCallback(fmt.Sprintf("Processing %s", date), i+1, len(datesList))
+			}
+		}
+
+		dayEvents := eventsByDate[date]
+		dayTasks := tasksByDate[date]
+
+		// Sort events by start time
+		var allDayEvents, timedEvents []markdown.EventMarkdown
+		for _, event := range dayEvents {
+			if event.AllDay || event.StartTime.IsZero() {
+				allDayEvents = append(allDayEvents, event)
+			} else {
+				timedEvents = append(timedEvents, event)
+			}
+		}
+
+		// Simple sort by start time
+		for i := 0; i < len(timedEvents)-1; i++ {
+			for j := i + 1; j < len(timedEvents); j++ {
+				if timedEvents[i].StartTime.After(timedEvents[j].StartTime) {
+					timedEvents[i], timedEvents[j] = timedEvents[j], timedEvents[i]
+				}
+			}
+		}
+
+		// Convert to Org diary format
+		var newAllDayEvents, newScheduledEvents, newTasks []string
+
+		for _, event := range allDayEvents {
+			eventOrg := EventOrg{EventMarkdown: event}
+			newAllDayEvents = append(newAllDayEvents, strings.TrimSpace(eventOrg.ToOrgDiaryEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis)))
+		}
+
+		for _, event := range timedEvents {
+			eventOrg := EventOrg{EventMarkdown: event}
+			newScheduledEvents = append(newScheduledEvents, strings.TrimSpace(eventOrg.ToOrgDiaryEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis)))
+		}
+
+		for _, task := range dayTasks {
+			todoOrg := TodoOrg{TodoMarkdown: task}
+			newTasks = append(newTasks, strings.TrimSpace(todoOrg.ToOrgDiaryEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags)))
+		}
+
+		// Create directory structure
+		var dirPath, filename string
+		if date == "0001-01-01" {
+			dirPath = filepath.Join(outputDir, "0001", "01")
+		} else {
+			parsedDate, _ := time.Parse("2006-01-02", date)
+			dirPath = filepath.Join(outputDir, parsedDate.Format("2006"), parsedDate.Format("01"))
+		}
+
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+		}
+
+		filename = filepath.Join(dirPath, fmt.Sprintf("%s.org", date))
+
+		// Parse existing file if it exists
+		existingContent, err := parseExistingOrgFile(filename)
+		if err != nil {
+			return fmt.Errorf("failed to parse existing file %s: %v", filename, err)
+		}
+
+		// Update title to indicate org-diary format
+		var titleOverride string
+		if date == "0001-01-01" {
+			titleOverride = "Events (Date TBD) - Org-Diary Format"
+		} else {
+			parsedDate, _ := time.Parse("2006-01-02", date)
+			titleOverride = fmt.Sprintf("%s - Org-Diary Format", parsedDate.Format("Monday, January 2, 2006"))
+		}
+
+		// Generate merged content with custom title
+		mergedContent := generateMergedOrgContentWithTitle(date, existingContent, newAllDayEvents, newScheduledEvents, newTasks, titleOverride)
+
+		// Write to file
+		if err := writeOrgToFile(filename, mergedContent); err != nil {
+			return fmt.Errorf("failed to write file %s: %v", filename, err)
+		}
+	}
+
+	// Generate todo.org file for tasks without due dates
+	if len(noDueDateTasks) > 0 {
+		if err := GenerateTodoOrgDiaryFile(outputDir, noDueDateTasks, useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags, progressCallback); err != nil {
+			return fmt.Errorf("failed to generate todo.org file: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// generateMergedOrgContentWithTitle is like generateMergedOrgContent but allows custom title
+func generateMergedOrgContentWithTitle(date string, existingContent *ExistingOrgContent, newAllDay, newScheduled, newTasks []string, customTitle string) string {
+	var sb strings.Builder
+
+	// Generate title
+	if customTitle != "" {
+		sb.WriteString(fmt.Sprintf("#+TITLE: %s\n\n", customTitle))
+	} else if existingContent != nil && existingContent.Title != "" {
+		sb.WriteString(fmt.Sprintf("#+TITLE: %s\n\n", existingContent.Title))
+	} else {
+		if date == "0001-01-01" {
+			sb.WriteString("#+TITLE: Events (Date TBD)\n\n")
+		} else {
+			parsedDate, _ := time.Parse("2006-01-02", date)
+			sb.WriteString(fmt.Sprintf("#+TITLE: %s\n\n", parsedDate.Format("Monday, January 2, 2006")))
+		}
+	}
+
+	// Add other content from existing file
+	if existingContent != nil && len(existingContent.OtherContent) > 0 {
+		for _, line := range existingContent.OtherContent {
+			sb.WriteString(line + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Merge and deduplicate all-day events
+	var allDayItems []string
+	if existingContent != nil {
+		allDayItems = append(allDayItems, existingContent.AllDayEvents...)
+	}
+	allDayItems = append(allDayItems, newAllDay...)
+	allDayItems = smartDeduplicateOrg(allDayItems)
+
+	// Merge and deduplicate scheduled events
+	var scheduledItems []string
+	if existingContent != nil {
+		scheduledItems = append(scheduledItems, existingContent.ScheduledEvents...)
+	}
+	scheduledItems = append(scheduledItems, newScheduled...)
+	scheduledItems = smartDeduplicateOrg(scheduledItems)
+
+	// Merge and deduplicate tasks
+	var taskItems []string
+	if existingContent != nil {
+		taskItems = append(taskItems, existingContent.Tasks...)
+	}
+	taskItems = append(taskItems, newTasks...)
+	taskItems = smartDeduplicateOrg(taskItems)
+
+	// Add custom sections
+	if existingContent != nil {
+		for sectionHeader, sectionItems := range existingContent.CustomSections {
+			if sectionHeader == "* All Day Events" || sectionHeader == "* Scheduled Events" || sectionHeader == "* Tasks" {
+				continue
+			}
+			if len(sectionItems) > 0 {
+				sb.WriteString(sectionHeader + "\n")
+				for _, item := range sectionItems {
+					sb.WriteString(item)
+				}
+				sb.WriteString("\n")
+			}
+		}
+	}
+
+	// Add all-day events (no section header)
+	if len(allDayItems) > 0 {
+		for _, item := range allDayItems {
+			sb.WriteString(item)
+		}
+	}
+
+	// Add scheduled events (no section header)
+	if len(scheduledItems) > 0 {
+		for _, item := range scheduledItems {
+			sb.WriteString(item)
+		}
+	}
+
+	// Add tasks (no section header)
+	if len(taskItems) > 0 {
+		for _, item := range taskItems {
+			sb.WriteString(item)
+		}
+	}
+
+	return sb.String()
+}
+
+// GenerateSingleOrgDiaryFile creates a single Org file with all events and tasks using diary sexp format
+func GenerateSingleOrgDiaryFile(outputPath string, events []markdown.EventMarkdown, tasks []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback markdown.ProgressCallback) error {
+	if progressCallback != nil {
+		progressCallback("Generating single Org file output (org-diary format)", 0, 1)
+	}
+
+	// Group events and tasks by date
+	eventsByDate := make(map[string][]markdown.EventMarkdown)
+	tasksByDate := make(map[string][]markdown.TodoMarkdown)
+	var noDueDateTasks []markdown.TodoMarkdown
+
+	for _, event := range events {
+		var dateKey string
+		if event.StartTime.IsZero() {
+			dateKey = "0001-01-01"
+		} else {
+			dateKey = event.StartTime.Format("2006-01-02")
+		}
+		eventsByDate[dateKey] = append(eventsByDate[dateKey], event)
+	}
+
+	for _, task := range tasks {
+		if task.DueDate.IsZero() {
+			noDueDateTasks = append(noDueDateTasks, task)
+		} else {
+			dateKey := task.DueDate.Format("2006-01-02")
+			tasksByDate[dateKey] = append(tasksByDate[dateKey], task)
+		}
+	}
+
+	// Get all unique dates and sort them
+	allDates := make(map[string]bool)
+	for date := range eventsByDate {
+		allDates[date] = true
+	}
+	for date := range tasksByDate {
+		allDates[date] = true
+	}
+
+	datesList := make([]string, 0, len(allDates))
+	for date := range allDates {
+		datesList = append(datesList, date)
+	}
+
+	// Sort dates chronologically
+	for i := 0; i < len(datesList)-1; i++ {
+		for j := i + 1; j < len(datesList); j++ {
+			if datesList[i] > datesList[j] {
+				datesList[i], datesList[j] = datesList[j], datesList[i]
+			}
+		}
+	}
+
+	// Build the single file content
+	var sb strings.Builder
+
+	sb.WriteString("#+TITLE: Calendar Events and Tasks (Org-Diary Format)\n")
+	sb.WriteString(fmt.Sprintf("#+DATE: %s\n\n", time.Now().Format("2006-01-02")))
+
+	// Process each date
+	for i, date := range datesList {
+		if progressCallback != nil {
+			progressCallback(fmt.Sprintf("Processing %s", date), i+1, len(datesList))
+		}
+
+		dayEvents := eventsByDate[date]
+		dayTasks := tasksByDate[date]
+
+		if len(dayEvents) == 0 && len(dayTasks) == 0 {
+			continue
+		}
+
+		// Sort events
+		var allDayEvents, timedEvents []markdown.EventMarkdown
+		for _, event := range dayEvents {
+			if event.AllDay || event.StartTime.IsZero() {
+				allDayEvents = append(allDayEvents, event)
+			} else {
+				timedEvents = append(timedEvents, event)
+			}
+		}
+
+		for i := 0; i < len(timedEvents)-1; i++ {
+			for j := i + 1; j < len(timedEvents); j++ {
+				if timedEvents[i].StartTime.After(timedEvents[j].StartTime) {
+					timedEvents[i], timedEvents[j] = timedEvents[j], timedEvents[i]
+				}
+			}
+		}
+
+		// Add all-day events (no section header)
+		if len(allDayEvents) > 0 {
+			for _, event := range allDayEvents {
+				eventOrg := EventOrg{EventMarkdown: event}
+				sb.WriteString(eventOrg.ToOrgDiaryEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
+			}
+		}
+
+		// Add scheduled events (no section header)
+		if len(timedEvents) > 0 {
+			for _, event := range timedEvents {
+				eventOrg := EventOrg{EventMarkdown: event}
+				sb.WriteString(eventOrg.ToOrgDiaryEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
+			}
+		}
+
+		// Add tasks (no section header)
+		if len(dayTasks) > 0 {
+			for _, task := range dayTasks {
+				todoOrg := TodoOrg{TodoMarkdown: task}
+				sb.WriteString(todoOrg.ToOrgDiaryEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags))
+			}
+		}
+	}
+
+	// Add tasks without due dates (no section header)
+	if len(noDueDateTasks) > 0 {
+		for _, task := range noDueDateTasks {
+			todoOrg := TodoOrg{TodoMarkdown: task}
+			sb.WriteString(todoOrg.ToOrgDiaryEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags))
+		}
+	}
+
+	// Write to file
+	if err := writeOrgToFile(outputPath, sb.String()); err != nil {
+		return fmt.Errorf("failed to write single Org file: %v", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback("Generated single Org file (org-diary format)", 1, 1)
+	}
+
+	return nil
+}
+
 // GenerateSingleOrgFile creates a single Org file with all events and tasks
 func GenerateSingleOrgFile(outputPath string, events []markdown.EventMarkdown, tasks []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback markdown.ProgressCallback) error {
 	if progressCallback != nil {
@@ -775,14 +1394,6 @@ func GenerateSingleOrgFile(outputPath string, events []markdown.EventMarkdown, t
 			continue
 		}
 
-		// Add date header
-		if date == "0001-01-01" {
-			sb.WriteString("* Events (Date TBD)\n\n")
-		} else {
-			parsedDate, _ := time.Parse("2006-01-02", date)
-			sb.WriteString(fmt.Sprintf("* %s\n\n", parsedDate.Format("Monday, January 2, 2006")))
-		}
-
 		// Sort events
 		var allDayEvents, timedEvents []markdown.EventMarkdown
 		for _, event := range dayEvents {
@@ -801,49 +1412,36 @@ func GenerateSingleOrgFile(outputPath string, events []markdown.EventMarkdown, t
 			}
 		}
 
-		// Add all-day events
+		// Add all-day events (no section header)
 		if len(allDayEvents) > 0 {
-			sb.WriteString("** All Day Events\n\n")
 			for _, event := range allDayEvents {
 				eventOrg := EventOrg{EventMarkdown: event}
-				// Increase heading level for sub-entries
-				entry := eventOrg.ToOrgEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis)
-				entry = strings.ReplaceAll(entry, "** ", "*** ")
-				sb.WriteString(entry)
+				sb.WriteString(eventOrg.ToOrgEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
 			}
 		}
 
-		// Add scheduled events
+		// Add scheduled events (no section header)
 		if len(timedEvents) > 0 {
-			sb.WriteString("** Scheduled Events\n\n")
 			for _, event := range timedEvents {
 				eventOrg := EventOrg{EventMarkdown: event}
-				entry := eventOrg.ToOrgEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis)
-				entry = strings.ReplaceAll(entry, "** ", "*** ")
-				sb.WriteString(entry)
+				sb.WriteString(eventOrg.ToOrgEntryWithOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
 			}
 		}
 
-		// Add tasks
+		// Add tasks (no section header)
 		if len(dayTasks) > 0 {
-			sb.WriteString("** Tasks\n\n")
 			for _, task := range dayTasks {
 				todoOrg := TodoOrg{TodoMarkdown: task}
-				entry := todoOrg.ToOrgEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags)
-				entry = strings.ReplaceAll(entry, "** ", "*** ")
-				sb.WriteString(entry)
+				sb.WriteString(todoOrg.ToOrgEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags))
 			}
 		}
 	}
 
-	// Add tasks without due dates
+	// Add tasks without due dates (no section header)
 	if len(noDueDateTasks) > 0 {
-		sb.WriteString("* Tasks Without Due Date\n\n")
 		for _, task := range noDueDateTasks {
 			todoOrg := TodoOrg{TodoMarkdown: task}
-			entry := todoOrg.ToOrgEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags)
-			entry = strings.ReplaceAll(entry, "** ", "*** ")
-			sb.WriteString(entry)
+			sb.WriteString(todoOrg.ToOrgEntryWithOptions(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags))
 		}
 	}
 

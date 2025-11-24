@@ -474,36 +474,51 @@ func (em EventMarkdown) ToListItemWithAllOptions(useHashtags, ignoreDescriptions
 	}
 
 	if em.AllDay {
-		sb.WriteString(fmt.Sprintf("%s **%s** (All Day)", prefix, em.Title))
+		// All-day events are always formatted as tasks with checkboxes
+		if em.IsPastEvent() {
+			prefix = "- [x]" // Mark past all-day events as completed
+		} else {
+			prefix = "- [ ]" // Future all-day events remain unchecked
+		}
+
+		dateStr := em.StartTime.Format("2006-01-02")
+		sb.WriteString(fmt.Sprintf("%s %s 📅 %s", prefix, em.Title, dateStr))
 	} else if em.StartTime.IsZero() {
-		sb.WriteString(fmt.Sprintf("%s **%s** (Time TBD)", prefix, em.Title))
+		sb.WriteString(fmt.Sprintf("%s %s (Time TBD)", prefix, em.Title))
 	} else {
+		// Timed events are always formatted as tasks with checkboxes
+		if em.IsPastEvent() {
+			prefix = "- [x]" // Mark past timed events as completed
+		} else {
+			prefix = "- [ ]" // Future timed events remain unchecked
+		}
+
 		if useObsidianEmojis {
 			// Use Obsidian Tasks emoji format for timed events
 			startDate := em.StartTime.Format("2006-01-02")
 			startTime := em.StartTime.Format("15:04")
 			if em.EndTime.IsZero() || em.EndTime.Equal(em.StartTime) {
-				sb.WriteString(fmt.Sprintf("%s **%s** 🛫 %s %s", prefix, em.Title, startDate, startTime))
+				sb.WriteString(fmt.Sprintf("%s %s 🛫 %s %s", prefix, em.Title, startDate, startTime))
 			} else {
 				endDate := em.EndTime.Format("2006-01-02")
 				endTime := em.EndTime.Format("15:04")
 				// Use start emoji for start time and done emoji for end time
 				if startDate == endDate {
 					// Same day - show both times with emojis
-					sb.WriteString(fmt.Sprintf("%s **%s** 🛫 %s %s ✅ %s", prefix, em.Title, startDate, startTime, endTime))
+					sb.WriteString(fmt.Sprintf("%s %s 🛫 %s %s ✅ %s", prefix, em.Title, startDate, startTime, endTime))
 				} else {
 					// Different days - show full date/time for both
-					sb.WriteString(fmt.Sprintf("%s **%s** 🛫 %s %s ✅ %s %s", prefix, em.Title, startDate, startTime, endDate, endTime))
+					sb.WriteString(fmt.Sprintf("%s %s 🛫 %s %s ✅ %s %s", prefix, em.Title, startDate, startTime, endDate, endTime))
 				}
 			}
 		} else {
 			// Original format without Obsidian emojis
 			startTime := em.StartTime.Format("15:04")
 			if em.EndTime.IsZero() || em.EndTime.Equal(em.StartTime) {
-				sb.WriteString(fmt.Sprintf("%s **%s** at %s", prefix, em.Title, startTime))
+				sb.WriteString(fmt.Sprintf("%s %s at %s", prefix, em.Title, startTime))
 			} else {
 				endTime := em.EndTime.Format("15:04")
-				sb.WriteString(fmt.Sprintf("%s **%s** (%s - %s)", prefix, em.Title, startTime, endTime))
+				sb.WriteString(fmt.Sprintf("%s %s (%s - %s)", prefix, em.Title, startTime, endTime))
 			}
 		}
 	}

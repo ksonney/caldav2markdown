@@ -5,6 +5,8 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 ## 🆕 Recent Updates
 
 ### Latest Enhancements (2025)
+- **📁 Obsidian Life Manager Structure**: Optional directory organization compatible with Obsidian Life Manager vault layout. Daily files organized as `Daily/YYYY/MM - Month Name/YYYY-MM-DD.md` and weekly files as `Weekly/YYYY/YYYY-Www.md`. Perfect for Obsidian users following the Life Manager system
+- **📆 Weekly File Output Mode**: New file organization mode that groups events and tasks by ISO week (Monday-Sunday) instead of daily files. Files organized as `YYYY/YYYY-WW.md` with daily sections within each weekly file. Perfect for weekly planning and review workflows
 - **📓 Emacs Diary Output**: Traditional Emacs diary format support with automatic single-file mode, perfect for GNU Emacs calendar integration
 - **📝 Org Mode Output**: Full Emacs Org mode format support with native scheduling, TODO states, properties drawers, and tags
 - **🔮 Org-Diary Format**: Hybrid format combining Org mode structure with Emacs diary sexp expressions for advanced date handling
@@ -48,14 +50,16 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 
 ### 📁 Output & Organization
 - **Multiple Output Formats**: Choose between Markdown (`.md`), Emacs Org mode (`.org`), Org-diary (`.org` with diary sexps), or Emacs diary format
-- **Daily Aggregation**: Events and tasks organized in `YYYY-MM-DD.md` or `YYYY-MM-DD.org` files (Markdown/Org mode)
-- **Single File Mode**: Optional consolidated output in one file instead of daily files
+- **Flexible File Organization**:
+  - **Daily Files** (default): Events organized by date in `YYYY/MM/YYYY-MM-DD.md` format
+  - **Weekly Files**: Events organized by ISO week in `YYYY/YYYY-WW.md` format (Monday-Sunday)
+  - **Single File Mode**: All events consolidated in one file
 - **Smart Todo Management**: Tasks without due dates saved to separate `todo.md` or `todo.org` file
 - **Structured Metadata**: YAML frontmatter (Markdown) or Org properties drawer (Org mode) for static site generators
 - **Intelligent File Merging**: Preserves custom content and manual edits while adding new calendar data
 - **Flexible Formatting**: Customizable emoji, hashtags/tags, display options, optional description exclusion, and event checkboxes/TODO states
 - **Past Event Marking**: Automatically marks past events as completed [x] (Markdown) or DONE (Org mode) when checkboxes are enabled
-- **Directory Structure**: Organized in `YYYY/MM/` hierarchy for easy navigation
+- **Directory Structure**: Daily files in `YYYY/MM/`, weekly files in `YYYY/`, for easy navigation
 
 ### 📅 Calendar Features
 - **Event Processing**: Full support for recurring events with RRULE expansion
@@ -288,6 +292,21 @@ bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "
 ### Advanced Usage Examples
 
 ```bash
+# Obsidian Life Manager directory structure
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -obsidian-life-manager -frontmatter -hashtags -event-checkboxes \
+  -output ~/ObsidianVault
+
+# Weekly file output mode (ISO week Monday-Sunday)
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -weekly-file -frontmatter -hashtags -event-checkboxes \
+  -start 2024-01-01 -end 2024-12-31
+
+# Obsidian Life Manager with weekly files
+bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
+  -obsidian-life-manager -weekly-file -frontmatter -hashtags \
+  -output ~/ObsidianVault
+
 # Full-featured processing with all options
 bin/caldav2markdown -url "https://your-server.com/" -username "user" -password "pass" \
   -discover-calendars -include-calendars "Work,Personal" \

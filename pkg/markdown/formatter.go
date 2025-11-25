@@ -1957,6 +1957,62 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
+// getISOWeekKey returns a week key in format "YYYY-WW" for a given date
+func getISOWeekKey(t time.Time) string {
+	year, week := t.ISOWeek()
+	return fmt.Sprintf("%04d-%02d", year, week)
+}
+
+// getWeekBounds returns the Monday and Sunday for a given ISO week
+func getWeekBounds(year, week int) (time.Time, time.Time) {
+	// January 4th is always in week 1
+	jan4 := time.Date(year, time.January, 4, 0, 0, 0, 0, time.Local)
+
+	// Find Monday of week 1
+	weekday := int(jan4.Weekday())
+	if weekday == 0 {
+		weekday = 7 // Sunday = 7
+	}
+	mondayWeek1 := jan4.AddDate(0, 0, -(weekday - 1))
+
+	// Calculate the target Monday
+	monday := mondayWeek1.AddDate(0, 0, (week-1)*7)
+	sunday := monday.AddDate(0, 0, 6)
+
+	return monday, sunday
+}
+
+// formatWeekTitle formats a title for a weekly file
+func formatWeekTitle(year, week int) string {
+	monday, sunday := getWeekBounds(year, week)
+	return fmt.Sprintf("Week %d, %d (%s - %s)",
+		week, year,
+		monday.Format("January 2, 2006"),
+		sunday.Format("January 2, 2006"))
+}
+
+// getOLMDailyPath returns the Obsidian Life Manager path for a daily file
+// Format: Daily/YYYY/MM - Month Name/YYYY-MM-DD.md
+func getOLMDailyPath(outputDir string, date time.Time) string {
+	year := date.Format("2006")
+	month := date.Format("01")
+	monthName := date.Format("January")
+	fileName := fmt.Sprintf("%s.md", date.Format("2006-01-02"))
+
+	dirPath := filepath.Join(outputDir, "Daily", year, fmt.Sprintf("%s-%s", month, monthName))
+	return filepath.Join(dirPath, fileName)
+}
+
+// getOLMWeeklyPath returns the Obsidian Life Manager path for a weekly file
+// Format: Weekly/YYYY/YYYY-Www.md
+func getOLMWeeklyPath(outputDir string, year, week int) string {
+	yearStr := fmt.Sprintf("%04d", year)
+	fileName := fmt.Sprintf("%s-W%02d.md", yearStr, week)
+
+	dirPath := filepath.Join(outputDir, "Weekly", yearStr)
+	return filepath.Join(dirPath, fileName)
+}
+
 // ProgressCallback is a function type for reporting progress during file generation
 type ProgressCallback func(message string, current, total int)
 
@@ -1969,6 +2025,19 @@ type DayFrontmatter struct {
 	AllDayCount int      `yaml:"allday_count"`
 	Tags        []string `yaml:"tags,omitempty"`
 	Type        string   `yaml:"type"`
+}
+
+// WeekFrontmatter represents the YAML frontmatter for weekly files
+type WeekFrontmatter struct {
+	Week       int      `yaml:"week"`
+	Year       int      `yaml:"year"`
+	Title      string   `yaml:"title"`
+	StartDate  string   `yaml:"start_date"`
+	EndDate    string   `yaml:"end_date"`
+	EventCount int      `yaml:"event_count"`
+	TaskCount  int      `yaml:"task_count"`
+	Tags       []string `yaml:"tags,omitempty"`
+	Type       string   `yaml:"type"`
 }
 
 // EventFrontmatter represents event-specific frontmatter data
@@ -2008,7 +2077,7 @@ func GenerateDailyFilesWithTasksAndOptions(outputDir string, events []EventMarkd
 
 // GenerateDailyFilesWithCompleteOptions groups events and tasks by date and creates daily markdown files with all available options
 func GenerateDailyFilesWithCompleteOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes bool) error {
-	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, false, false, nil)
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, false, false, false, nil)
 }
 
 // GenerateDailyFilesWithTasksAndFrontmatter groups events and tasks by date and creates daily markdown files with frontmatter
@@ -2028,11 +2097,11 @@ func GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir string, events 
 
 // GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions groups events and tasks by date and creates daily markdown files with full options
 func GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions bool, progressCallback ProgressCallback) error {
-	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, false, false, false, progressCallback)
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, false, false, false, false, progressCallback)
 }
 
 // GenerateDailyFilesWithAllOptions groups events and tasks by date and creates daily markdown files with complete control over formatting
-func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback ProgressCallback) error {
+func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis, obsidianLifeManager bool, progressCallback ProgressCallback) error {
 	// Group events by date
 	eventsByDate := make(map[string][]EventMarkdown)
 	tasksByDate := make(map[string][]TodoMarkdown)
@@ -2123,19 +2192,40 @@ func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, 
 		}
 
 		// Create directory structure
-		var dirPath, filename string
-		if date == "0001-01-01" {
-			dirPath = filepath.Join(outputDir, "0001", "01")
+		var filename string
+		if obsidianLifeManager {
+			// Use Obsidian Life Manager structure
+			if date == "0001-01-01" {
+				// Handle zero dates - put in a special directory
+				dirPath := filepath.Join(outputDir, "Daily", "0001", "01 - Unknown")
+				if err := os.MkdirAll(dirPath, 0755); err != nil {
+					return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+				}
+				filename = filepath.Join(dirPath, fmt.Sprintf("%s Unknown.md", date))
+			} else {
+				parsedDate, _ := time.Parse("2006-01-02", date)
+				filename = getOLMDailyPath(outputDir, parsedDate)
+				dirPath := filepath.Dir(filename)
+				if err := os.MkdirAll(dirPath, 0755); err != nil {
+					return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+				}
+			}
 		} else {
-			parsedDate, _ := time.Parse("2006-01-02", date)
-			dirPath = filepath.Join(outputDir, parsedDate.Format("2006"), parsedDate.Format("01"))
-		}
+			// Use standard structure
+			var dirPath string
+			if date == "0001-01-01" {
+				dirPath = filepath.Join(outputDir, "0001", "01")
+			} else {
+				parsedDate, _ := time.Parse("2006-01-02", date)
+				dirPath = filepath.Join(outputDir, parsedDate.Format("2006"), parsedDate.Format("01"))
+			}
 
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
-		}
+			if err := os.MkdirAll(dirPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+			}
 
-		filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", date))
+			filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", date))
+		}
 
 		// Parse existing file if it exists
 		existingContent, err := parseExistingFile(filename)
@@ -2179,6 +2269,293 @@ func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, 
 // GenerateDailyFiles groups events by date and creates daily markdown files (backward compatibility)
 func GenerateDailyFiles(outputDir string, events []EventMarkdown) error {
 	return GenerateDailyFilesWithTasks(outputDir, events, nil, false, false)
+}
+
+// GenerateWeeklyFilesWithAllOptions groups events and tasks by ISO week and creates weekly markdown files
+func GenerateWeeklyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis, obsidianLifeManager bool, progressCallback ProgressCallback) error {
+	// Group events by ISO week
+	eventsByWeek := make(map[string]map[string][]EventMarkdown) // week -> date -> events
+	tasksByWeek := make(map[string]map[string][]TodoMarkdown)   // week -> date -> tasks
+	var noDueDateTasks []TodoMarkdown
+
+	// Process events
+	for _, event := range events {
+		var weekKey, dateKey string
+		if event.StartTime.IsZero() {
+			weekKey = "0001-01"
+			dateKey = "0001-01-01"
+		} else {
+			weekKey = getISOWeekKey(event.StartTime)
+			dateKey = event.StartTime.Format("2006-01-02")
+		}
+
+		if eventsByWeek[weekKey] == nil {
+			eventsByWeek[weekKey] = make(map[string][]EventMarkdown)
+		}
+		eventsByWeek[weekKey][dateKey] = append(eventsByWeek[weekKey][dateKey], event)
+	}
+
+	// Process tasks
+	for _, task := range tasks {
+		if task.DueDate.IsZero() {
+			noDueDateTasks = append(noDueDateTasks, task)
+		} else {
+			weekKey := getISOWeekKey(task.DueDate)
+			dateKey := task.DueDate.Format("2006-01-02")
+
+			if tasksByWeek[weekKey] == nil {
+				tasksByWeek[weekKey] = make(map[string][]TodoMarkdown)
+			}
+			tasksByWeek[weekKey][dateKey] = append(tasksByWeek[weekKey][dateKey], task)
+		}
+	}
+
+	// Get all unique weeks
+	allWeeks := make(map[string]bool)
+	for week := range eventsByWeek {
+		allWeeks[week] = true
+	}
+	for week := range tasksByWeek {
+		allWeeks[week] = true
+	}
+
+	// Convert to slice for indexed iteration
+	weeksList := make([]string, 0, len(allWeeks))
+	for week := range allWeeks {
+		weeksList = append(weeksList, week)
+	}
+
+	// Sort weeks chronologically
+	for i := 0; i < len(weeksList)-1; i++ {
+		for j := i + 1; j < len(weeksList); j++ {
+			if weeksList[i] > weeksList[j] {
+				weeksList[i], weeksList[j] = weeksList[j], weeksList[i]
+			}
+		}
+	}
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf("Generating %d weekly files", len(weeksList)), 0, len(weeksList))
+	}
+
+	// Create a file for each week
+	for i, weekKey := range weeksList {
+		if progressCallback != nil {
+			if weekKey == "0001-01" {
+				progressCallback("Processing items with no date", i+1, len(weeksList))
+			} else {
+				progressCallback(fmt.Sprintf("Processing week %s", weekKey), i+1, len(weeksList))
+			}
+		}
+
+		weekEvents := eventsByWeek[weekKey]
+		weekTasks := tasksByWeek[weekKey]
+
+		// Build weekly file content
+		var sb strings.Builder
+
+		// Parse week number and year
+		var year, week int
+		if weekKey == "0001-01" {
+			year, week = 1, 1
+		} else {
+			fmt.Sscanf(weekKey, "%d-%d", &year, &week)
+		}
+
+		// Add frontmatter if requested
+		if useFrontmatter {
+			monday, sunday := getWeekBounds(year, week)
+			allWeekEvents := []EventMarkdown{}
+			for _, dayEvents := range weekEvents {
+				allWeekEvents = append(allWeekEvents, dayEvents...)
+			}
+			allWeekTasks := []TodoMarkdown{}
+			for _, dayTasks := range weekTasks {
+				allWeekTasks = append(allWeekTasks, dayTasks...)
+			}
+
+			fm := WeekFrontmatter{
+				Week:       week,
+				Year:       year,
+				Title:      formatWeekTitle(year, week),
+				StartDate:  monday.Format("2006-01-02"),
+				EndDate:    sunday.Format("2006-01-02"),
+				EventCount: len(allWeekEvents),
+				TaskCount:  len(allWeekTasks),
+				Type:       "weekly",
+			}
+
+			// Collect tags from events and tasks
+			tagSet := make(map[string]bool)
+			for _, event := range allWeekEvents {
+				for _, cat := range event.Categories {
+					if cat != "" {
+						tagSet[cat] = true
+					}
+				}
+			}
+			for _, task := range allWeekTasks {
+				for _, cat := range task.Categories {
+					if cat != "" {
+						tagSet[cat] = true
+					}
+				}
+			}
+
+			for tag := range tagSet {
+				fm.Tags = append(fm.Tags, tag)
+			}
+
+			yamlData, err := yaml.Marshal(fm)
+			if err == nil {
+				sb.WriteString(fmt.Sprintf("---\n%s---\n\n", string(yamlData)))
+			}
+		}
+
+		// Add week title
+		if weekKey == "0001-01" {
+			sb.WriteString("# Events (Date TBD)\n\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("# %s\n\n", formatWeekTitle(year, week)))
+		}
+
+		// Get all dates for this week and sort them
+		allDates := make(map[string]bool)
+		for date := range weekEvents {
+			allDates[date] = true
+		}
+		for date := range weekTasks {
+			allDates[date] = true
+		}
+
+		datesList := make([]string, 0, len(allDates))
+		for date := range allDates {
+			datesList = append(datesList, date)
+		}
+
+		// Sort dates chronologically
+		for i := 0; i < len(datesList)-1; i++ {
+			for j := i + 1; j < len(datesList); j++ {
+				if datesList[i] > datesList[j] {
+					datesList[i], datesList[j] = datesList[j], datesList[i]
+				}
+			}
+		}
+
+		// Process each date within the week
+		for _, date := range datesList {
+			dayEvents := weekEvents[date]
+			dayTasks := weekTasks[date]
+
+			// Add date header
+			if date == "0001-01-01" {
+				sb.WriteString("## No Date Specified\n\n")
+			} else {
+				parsedDate, _ := time.Parse("2006-01-02", date)
+				sb.WriteString(fmt.Sprintf("## %s\n\n", parsedDate.Format("Monday, January 2, 2006")))
+			}
+
+			// Sort events by start time
+			var allDayEvents, timedEvents []EventMarkdown
+			for _, event := range dayEvents {
+				if event.AllDay || event.StartTime.IsZero() {
+					allDayEvents = append(allDayEvents, event)
+				} else {
+					timedEvents = append(timedEvents, event)
+				}
+			}
+
+			// Simple sort by start time for timed events
+			for i := 0; i < len(timedEvents)-1; i++ {
+				for j := i + 1; j < len(timedEvents); j++ {
+					if timedEvents[i].StartTime.After(timedEvents[j].StartTime) {
+						timedEvents[i], timedEvents[j] = timedEvents[j], timedEvents[i]
+					}
+				}
+			}
+
+			// Add all-day events section
+			if len(allDayEvents) > 0 {
+				sb.WriteString("### All Day Events\n\n")
+				for _, event := range allDayEvents {
+					sb.WriteString(event.ToListItemWithAllOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
+				}
+				sb.WriteString("\n")
+			}
+
+			// Add scheduled events section
+			if len(timedEvents) > 0 {
+				sb.WriteString("### Scheduled Events\n\n")
+				for _, event := range timedEvents {
+					sb.WriteString(event.ToListItemWithAllOptions(useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis))
+				}
+				sb.WriteString("\n")
+			}
+
+			// Add tasks section
+			if len(dayTasks) > 0 {
+				sb.WriteString("### Tasks\n\n")
+				for _, task := range dayTasks {
+					sb.WriteString(task.ToMarkdownWithOptionsAndCalendarTags(useDueDateEmoji, useHashtags, ignoreDescriptions, useCalendarTags))
+				}
+				sb.WriteString("\n")
+			}
+		}
+
+		// Create directory structure
+		var filename string
+		if obsidianLifeManager {
+			// Use Obsidian Life Manager structure
+			if weekKey == "0001-01" {
+				// Handle zero dates - put in a special directory
+				dirPath := filepath.Join(outputDir, "Weekly", "0001")
+				if err := os.MkdirAll(dirPath, 0755); err != nil {
+					return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+				}
+				filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", weekKey))
+			} else {
+				filename = getOLMWeeklyPath(outputDir, year, week)
+				dirPath := filepath.Dir(filename)
+				if err := os.MkdirAll(dirPath, 0755); err != nil {
+					return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+				}
+			}
+		} else {
+			// Use standard structure
+			var dirPath string
+			if weekKey == "0001-01" {
+				dirPath = filepath.Join(outputDir, "0001")
+			} else {
+				dirPath = filepath.Join(outputDir, fmt.Sprintf("%04d", year))
+			}
+
+			if err := os.MkdirAll(dirPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+			}
+
+			filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", weekKey))
+		}
+
+		// Write content to file
+		file, err := os.Create(filename)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %v", filename, err)
+		}
+		defer file.Close()
+
+		if _, err := file.WriteString(sb.String()); err != nil {
+			return fmt.Errorf("failed to write content to %s: %v", filename, err)
+		}
+	}
+
+	// Generate todo.md file for tasks without due dates
+	if len(noDueDateTasks) > 0 {
+		if err := GenerateTodoFile(outputDir, noDueDateTasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, useCalendarTags, progressCallback); err != nil {
+			return fmt.Errorf("failed to generate todo.md file: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // GenerateSingleFile creates a single markdown file with all events and tasks organized by date

@@ -134,8 +134,13 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 
 #### Output & Formatting
 - **Output Format Selection**: Choose between Markdown (`.md`), Org mode (`.org`), or Emacs diary format (controlled by `OUTPUT_FORMAT` config)
-- **Directory Structure**: Daily files organized in YYYY/MM directory tree, with zero-date events in `0001/01/`
+- **File Organization Modes**:
+  - **Daily Files** (default): Events organized by date in `YYYY/MM/YYYY-MM-DD.md` format
+  - **Weekly Files**: Events organized by ISO week in `YYYY/YYYY-WW.md` format (controlled by `WEEKLY_FILE_OUTPUT` config)
+  - **Single File**: All events in one consolidated file (controlled by `SINGLE_FILE_OUTPUT` config)
+- **Directory Structure**: Daily files organized in YYYY/MM directory tree, weekly files in YYYY directory, with zero-date events in `0001/` directory
 - **Daily Aggregation**: Events and tasks are grouped by date and saved as daily files with list format, including separate sections for all-day events, scheduled events, and tasks
+- **Weekly Aggregation**: Events and tasks are grouped by ISO week (Monday-Sunday) and saved as weekly files, with daily sections within each week file
 - **Metadata Support**:
   - **Markdown**: Optional YAML frontmatter with metadata
   - **Org Mode**: Org properties drawer with metadata, #+TITLE directive
@@ -241,6 +246,8 @@ This is a Go application that converts CalDAV calendar data to Markdown files. T
 ### Recent Major Updates
 
 #### Latest Technical Enhancements (2025)
+- **Obsidian Life Manager Directory Structure**: New optional directory structure compatible with Obsidian Life Manager vault organization. Daily files saved to `Daily/YYYY/MM - Month Name/YYYY-MM-DD.md` and weekly files to `Weekly/YYYY/YYYY-Www.md`. Perfect for users following the Obsidian Life Manager system. Controlled by `OBSIDIAN_LIFE_MANAGER` config option or `-obsidian-life-manager` CLI flag.
+- **Weekly File Output Mode**: New file organization option that groups events and tasks by ISO week (Monday-Sunday) instead of daily files. Files are organized as `YYYY/YYYY-WW.md` with daily sections within each weekly file. Includes week-specific frontmatter with week number, year, date range, and event/task counts. Controlled by `WEEKLY_FILE_OUTPUT` config option or `-weekly-file` CLI flag.
 - **Org-Diary Output Format**: New hybrid format combining Org mode structure with Emacs diary sexp expressions for flexible date handling. Supports both daily and single-file output modes with full Org mode and diary system integration.
 - **Calendar Discovery De-duplication**: Automatic removal of duplicate calendar collections using normalized URL comparison (case-insensitive, trailing slash handling) to prevent processing the same calendar multiple times
 - **Smart URL Filtering**: Intelligent filtering of non-calendar endpoints including ICS files, XML exports, and download URLs to focus only on proper CalDAV calendar collections
@@ -476,6 +483,31 @@ CALDAV_PASSWORD=password
 USE_DUE_DATE_EMOJI=true
 IGNORE_DESCRIPTIONS=true
 OUTPUT_DIR=./calendar-notes
+```
+
+#### Weekly File Output Mode
+```bash
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+WEEKLY_FILE_OUTPUT=true
+USE_FRONTMATTER=true
+USE_HASHTAGS=true
+EVENT_CHECKBOXES=true
+OUTPUT_DIR=./weekly-calendar
+```
+
+#### Obsidian Life Manager Directory Structure
+```bash
+CALDAV_URL=https://your-server.com/caldav/calendars/username/calendar/
+CALDAV_USERNAME=username
+CALDAV_PASSWORD=password
+OBSIDIAN_LIFE_MANAGER=true
+USE_FRONTMATTER=true
+USE_HASHTAGS=true
+EVENT_CHECKBOXES=true
+OUTPUT_DIR=./ObsidianVault
+# Creates: Daily/2025/11 - November/2025-11-24.md
 ```
 
 #### CalDAV Server Behind Corporate Proxy
@@ -865,6 +897,47 @@ sources:
         "Personal Calendar": "Personal"
 ```
 
+#### Weekly File Output Mode
+```yaml
+---
+output: ./weekly-calendar
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+weekly_file_output: true
+use_frontmatter: true
+use_hashtags: true
+event_checkboxes: true
+
+sources:
+  - type: caldav
+    name: My Calendar
+    caldav:
+      url: https://your-server.com/caldav/calendars/user/calendar/
+      username: user
+      password: password
+```
+
+#### Obsidian Life Manager Directory Structure
+```yaml
+---
+output: ./ObsidianVault
+start_date: 2024-01-01T00:00:00Z
+end_date: 2025-12-31T23:59:59Z
+obsidian_life_manager: true
+use_frontmatter: true
+use_hashtags: true
+event_checkboxes: true
+
+sources:
+  - type: caldav
+    name: My Calendar
+    caldav:
+      url: https://your-server.com/caldav/calendars/user/calendar/
+      username: user
+      password: password
+# Creates: Daily/2025/11 - November/2025-11-24.md
+```
+
 #### Single ICS Source
 ```yaml
 ---
@@ -1193,6 +1266,8 @@ output: ./events                    # Output directory
 output_format: markdown             # Output format: markdown or org
 single_file: false                  # Generate single file instead of daily files
 single_file_name: calendar.md       # Name for single file output (when single_file: true)
+weekly_file_output: false           # Generate weekly files instead of daily files (ISO week Monday-Sunday)
+obsidian_life_manager: false        # Use Obsidian Life Manager directory structure
 start_date: 2024-01-01T00:00:00Z   # Start date (ISO 8601 format)
 end_date: 2024-12-31T23:59:59Z     # End date (ISO 8601 format)
 

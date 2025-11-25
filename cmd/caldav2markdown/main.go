@@ -80,6 +80,8 @@ func main() {
 		useCalendarTags        = flag.Bool("calendar-tags", false, "Add calendar name tags to events and tasks")
 		singleFileOutput       = flag.Bool("single-file", false, "Generate a single file instead of separate daily files")
 		singleFileName         = flag.String("single-file-name", "calendar.md", "Name of the single output file when using -single-file")
+		weeklyFileOutput       = flag.Bool("weekly-file", false, "Generate weekly files instead of daily files (Monday-Sunday, ISO week numbers)")
+		obsidianLifeManager    = flag.Bool("obsidian-life-manager", false, "Use Obsidian Life Manager directory structure (Daily/YYYY/MM - Month/)")
 		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown, org, org-diary, or diary")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
@@ -199,6 +201,12 @@ func main() {
 	}
 	if cfg.SingleFileName == "" {
 		cfg.SingleFileName = "calendar.md"
+	}
+	if *weeklyFileOutput {
+		cfg.WeeklyFileOutput = true
+	}
+	if *obsidianLifeManager {
+		cfg.ObsidianLifeManager = true
 	}
 	if *outputFormat != "markdown" {
 		switch strings.ToLower(*outputFormat) {
@@ -402,6 +410,7 @@ func main() {
 		fmt.Println("  -obsidian-tasks   Enable Obsidian preset (event checkboxes + ignore descriptions + frontmatter + emojis + hashtags)")
 		fmt.Println("  -single-file      Generate a single file instead of separate daily files")
 		fmt.Println("  -single-file-name Name of the single output file (default: calendar.md or calendar.org)")
+		fmt.Println("  -weekly-file      Generate weekly files instead of daily files (Monday-Sunday, ISO week numbers)")
 		fmt.Println("")
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -708,39 +717,75 @@ func main() {
 			return
 		}
 
-		// Generate daily aggregated markdown files with both events and tasks
-		fmt.Println("Generating daily files...")
-		if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
-			fmt.Printf("\nFailed to generate daily files: %v\n", err)
-			os.Exit(1)
+		// Generate aggregated markdown files (daily or weekly) with both events and tasks
+		if cfg.WeeklyFileOutput {
+			fmt.Println("Generating weekly files...")
+			if err := markdown.GenerateWeeklyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, cfg.ObsidianLifeManager, progressCallback); err != nil {
+				fmt.Printf("\nFailed to generate weekly files: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Println("Generating daily files...")
+			if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, cfg.ObsidianLifeManager, progressCallback); err != nil {
+				fmt.Printf("\nFailed to generate daily files: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		fmt.Println() // New line after progress
 	}
 
-	// Count unique dates for reporting
-	dateCount := make(map[string]bool)
-	for _, eventMd := range eventMarkdowns {
-		var dateKey string
-		if eventMd.StartTime.IsZero() {
-			dateKey = "0001-01-01"
-		} else {
-			dateKey = eventMd.StartTime.Format("2006-01-02")
+	// Count unique dates/weeks for reporting
+	if cfg.WeeklyFileOutput {
+		weekCount := make(map[string]bool)
+		for _, eventMd := range eventMarkdowns {
+			var weekKey string
+			if eventMd.StartTime.IsZero() {
+				weekKey = "0001-01"
+			} else {
+				year, week := eventMd.StartTime.ISOWeek()
+				weekKey = fmt.Sprintf("%04d-%02d", year, week)
+			}
+			weekCount[weekKey] = true
 		}
-		dateCount[dateKey] = true
-	}
 
-	// Count task dates for reporting as well
-	for _, todoMd := range todoMarkdowns {
-		var dateKey string
-		if todoMd.DueDate.IsZero() {
-			dateKey = "0001-01-01"
-		} else {
-			dateKey = todoMd.DueDate.Format("2006-01-02")
+		// Count task weeks for reporting as well
+		for _, todoMd := range todoMarkdowns {
+			var weekKey string
+			if todoMd.DueDate.IsZero() {
+				weekKey = "0001-01"
+			} else {
+				year, week := todoMd.DueDate.ISOWeek()
+				weekKey = fmt.Sprintf("%04d-%02d", year, week)
+			}
+			weekCount[weekKey] = true
 		}
-		dateCount[dateKey] = true
-	}
 
-	fmt.Printf("Successfully created %d daily files for %d events and %d tasks\n", len(dateCount), len(sourcedEvents), len(sourcedTodos))
+		fmt.Printf("Successfully created %d weekly files for %d events and %d tasks\n", len(weekCount), len(sourcedEvents), len(sourcedTodos))
+	} else {
+		dateCount := make(map[string]bool)
+		for _, eventMd := range eventMarkdowns {
+			var dateKey string
+			if eventMd.StartTime.IsZero() {
+				dateKey = "0001-01-01"
+			} else {
+				dateKey = eventMd.StartTime.Format("2006-01-02")
+			}
+			dateCount[dateKey] = true
+		}
+
+		// Count task dates for reporting as well
+		for _, todoMd := range todoMarkdowns {
+			var dateKey string
+			if todoMd.DueDate.IsZero() {
+				dateKey = "0001-01-01"
+			} else {
+				dateKey = todoMd.DueDate.Format("2006-01-02")
+			}
+			dateCount[dateKey] = true
+		}
+
+		fmt.Printf("Successfully created %d daily files for %d events and %d tasks\n", len(dateCount), len(sourcedEvents), len(sourcedTodos))
+	}
 }
 
 // processCalDAVMode handles CalDAV-specific processing

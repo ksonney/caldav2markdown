@@ -93,6 +93,8 @@ type Config struct {
 	CalendarAliases     map[string]string `yaml:"calendar_aliases"`
 	SingleFileOutput    bool              `yaml:"single_file_output"`
 	SingleFileName      string            `yaml:"single_file_name"`
+	WeeklyFileOutput    bool              `yaml:"weekly_file_output"` // Generate weekly files instead of daily files
+	ObsidianLifeManager bool              `yaml:"obsidian_life_manager"` // Use Obsidian Life Manager directory structure
 	OutputFormat        string            `yaml:"output_format"` // "markdown", "org", or "diary"
 
 	// Multi-source configuration
@@ -441,6 +443,10 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.SingleFileOutput = strings.ToLower(value) == "true" || value == "1"
 		case "SINGLE_FILE_NAME":
 			config.SingleFileName = value
+		case "WEEKLY_FILE_OUTPUT":
+			config.WeeklyFileOutput = strings.ToLower(value) == "true" || value == "1"
+		case "OBSIDIAN_LIFE_MANAGER":
+			config.ObsidianLifeManager = strings.ToLower(value) == "true" || value == "1"
 		case "OUTPUT_FORMAT":
 			switch strings.ToLower(value) {
 			case "markdown", "md":
@@ -1297,6 +1303,21 @@ func (c *Config) ValidateGlobalConfig() error {
 	// Validate output directory
 	if c.Output == "" {
 		return fmt.Errorf("output directory cannot be empty")
+	}
+
+	// Validate output mode options (mutually exclusive)
+	if c.SingleFileOutput && c.WeeklyFileOutput {
+		return fmt.Errorf("single_file_output and weekly_file_output cannot both be enabled - choose one output mode")
+	}
+
+	// Validate Obsidian Life Manager mode requirements
+	if c.ObsidianLifeManager {
+		if c.SingleFileOutput {
+			return fmt.Errorf("obsidian_life_manager mode requires daily or weekly files - cannot be used with single_file_output")
+		}
+		if c.OutputFormat != "markdown" && c.OutputFormat != "" {
+			return fmt.Errorf("obsidian_life_manager mode only supports markdown output format")
+		}
 	}
 
 	// Validate date range

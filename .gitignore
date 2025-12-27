@@ -35,3 +35,6 @@ go.work.sum
 .idea/
 .vscode/
 .claude/
+
+# Tool Config files
+.tool-versions

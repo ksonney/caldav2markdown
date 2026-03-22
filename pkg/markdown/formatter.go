@@ -2013,6 +2013,47 @@ func getOLMWeeklyPath(outputDir string, year, week int) string {
 	return filepath.Join(dirPath, fileName)
 }
 
+// strftimeToGoFormat converts strftime-style format codes to Go time.Format layout codes.
+// Supported codes: %Y, %y, %m, %d, %B, %b, %A, %a, %H, %M, %S, %j, %%
+func strftimeToGoFormat(strftimeFmt string) string {
+	replacements := [][2]string{
+		{"%Y", "2006"},
+		{"%y", "06"},
+		{"%m", "01"},
+		{"%d", "02"},
+		{"%B", "January"},
+		{"%b", "Jan"},
+		{"%A", "Monday"},
+		{"%a", "Mon"},
+		{"%H", "15"},
+		{"%M", "04"},
+		{"%S", "05"},
+		{"%j", "002"},
+		{"%%", "%"},
+	}
+	result := strftimeFmt
+	for _, r := range replacements {
+		result = strings.ReplaceAll(result, r[0], r[1])
+	}
+	return result
+}
+
+// FormatDailyPath formats a date into a directory path and file stem using a strftime-style format string.
+// If format is empty, the default YYYY/MM/YYYY-MM-DD structure is used.
+// Returns the directory path and the full path stem (without file extension).
+func FormatDailyPath(outputDir string, date time.Time, format string) (dirPath string, stemPath string) {
+	if format == "" {
+		dirPath = filepath.Join(outputDir, date.Format("2006"), date.Format("01"))
+		stemPath = filepath.Join(dirPath, date.Format("2006-01-02"))
+		return
+	}
+	goFmt := strftimeToGoFormat(format)
+	relative := date.Format(goFmt)
+	stemPath = filepath.Join(outputDir, relative)
+	dirPath = filepath.Dir(stemPath)
+	return
+}
+
 // ProgressCallback is a function type for reporting progress during file generation
 type ProgressCallback func(message string, current, total int)
 
@@ -2077,7 +2118,7 @@ func GenerateDailyFilesWithTasksAndOptions(outputDir string, events []EventMarkd
 
 // GenerateDailyFilesWithCompleteOptions groups events and tasks by date and creates daily markdown files with all available options
 func GenerateDailyFilesWithCompleteOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes bool) error {
-	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, false, false, false, nil)
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, false, false, false, nil, "")
 }
 
 // GenerateDailyFilesWithTasksAndFrontmatter groups events and tasks by date and creates daily markdown files with frontmatter
@@ -2097,11 +2138,11 @@ func GenerateDailyFilesWithTasksProgressAndFrontmatter(outputDir string, events 
 
 // GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions groups events and tasks by date and creates daily markdown files with full options
 func GenerateDailyFilesWithTasksProgressAndFrontmatterAndDescriptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions bool, progressCallback ProgressCallback) error {
-	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, false, false, false, false, progressCallback)
+	return GenerateDailyFilesWithAllOptions(outputDir, events, tasks, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, false, false, false, false, progressCallback, "")
 }
 
 // GenerateDailyFilesWithAllOptions groups events and tasks by date and creates daily markdown files with complete control over formatting
-func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis, obsidianLifeManager bool, progressCallback ProgressCallback) error {
+func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, tasks []TodoMarkdown, useDueDateEmoji, useHashtags, useFrontmatter, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis, obsidianLifeManager bool, progressCallback ProgressCallback, dailyPathFormat string) error {
 	// Group events by date
 	eventsByDate := make(map[string][]EventMarkdown)
 	tasksByDate := make(map[string][]TodoMarkdown)
@@ -2215,16 +2256,18 @@ func GenerateDailyFilesWithAllOptions(outputDir string, events []EventMarkdown, 
 			var dirPath string
 			if date == "0001-01-01" {
 				dirPath = filepath.Join(outputDir, "0001", "01")
+				if err := os.MkdirAll(dirPath, 0755); err != nil {
+					return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+				}
+				filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", date))
 			} else {
 				parsedDate, _ := time.Parse("2006-01-02", date)
-				dirPath = filepath.Join(outputDir, parsedDate.Format("2006"), parsedDate.Format("01"))
+				dirPath, stemPath := FormatDailyPath(outputDir, parsedDate, dailyPathFormat)
+				if err := os.MkdirAll(dirPath, 0755); err != nil {
+					return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+				}
+				filename = stemPath + ".md"
 			}
-
-			if err := os.MkdirAll(dirPath, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
-			}
-
-			filename = filepath.Join(dirPath, fmt.Sprintf("%s.md", date))
 		}
 
 		// Parse existing file if it exists

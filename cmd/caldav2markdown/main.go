@@ -83,6 +83,7 @@ func main() {
 		weeklyFileOutput       = flag.Bool("weekly-file", false, "Generate weekly files instead of daily files (Monday-Sunday, ISO week numbers)")
 		obsidianLifeManager    = flag.Bool("obsidian-life-manager", false, "Use Obsidian Life Manager directory structure (Daily/YYYY/MM - Month/)")
 		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown, org, org-diary, or diary")
+		dailyPathFormat        = flag.String("daily-path-format", "", "strftime-style path format for daily files, e.g. %Y/%m/%Y-%m-%d (default: %Y/%m/%Y-%m-%d)")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -207,6 +208,9 @@ func main() {
 	}
 	if *obsidianLifeManager {
 		cfg.ObsidianLifeManager = true
+	}
+	if *dailyPathFormat != "" {
+		cfg.DailyPathFormat = *dailyPathFormat
 	}
 	if *outputFormat != "markdown" {
 		switch strings.ToLower(*outputFormat) {
@@ -651,7 +655,7 @@ func main() {
 
 		// Generate daily Org files
 		fmt.Println("Generating daily Org files...")
-		if err := org.GenerateDailyOrgFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+		if err := org.GenerateDailyOrgFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback, cfg.DailyPathFormat); err != nil {
 			fmt.Printf("\nFailed to generate daily Org files: %v\n", err)
 			os.Exit(1)
 		}
@@ -675,7 +679,7 @@ func main() {
 
 		// Generate daily Org diary files
 		fmt.Println("Generating daily Org files (org-diary format)...")
-		if err := org.GenerateDailyOrgDiaryFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback); err != nil {
+		if err := org.GenerateDailyOrgDiaryFiles(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, progressCallback, cfg.DailyPathFormat); err != nil {
 			fmt.Printf("\nFailed to generate daily Org files (org-diary format): %v\n", err)
 			os.Exit(1)
 		}
@@ -726,7 +730,7 @@ func main() {
 			}
 		} else {
 			fmt.Println("Generating daily files...")
-			if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, cfg.ObsidianLifeManager, progressCallback); err != nil {
+			if err := markdown.GenerateDailyFilesWithAllOptions(cfg.Output, eventMarkdowns, todoMarkdowns, cfg.UseDueDateEmoji, cfg.UseHashtags, cfg.UseFrontmatter, cfg.IgnoreDescriptions, cfg.EventCheckboxes, cfg.UseCalendarTags, cfg.UseObsidianEmojis, cfg.ObsidianLifeManager, progressCallback, cfg.DailyPathFormat); err != nil {
 				fmt.Printf("\nFailed to generate daily files: %v\n", err)
 				os.Exit(1)
 			}

@@ -96,6 +96,7 @@ type Config struct {
 	WeeklyFileOutput    bool              `yaml:"weekly_file_output"` // Generate weekly files instead of daily files
 	ObsidianLifeManager bool              `yaml:"obsidian_life_manager"` // Use Obsidian Life Manager directory structure
 	OutputFormat        string            `yaml:"output_format"` // "markdown", "org", or "diary"
+	DailyPathFormat     string            `yaml:"daily_path_format"` // strftime-style path format for daily files (e.g. %Y/%m/%Y-%m-%d)
 
 	// Multi-source configuration
 	Sources []SourceConfig `yaml:"sources"`
@@ -447,6 +448,8 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.WeeklyFileOutput = strings.ToLower(value) == "true" || value == "1"
 		case "OBSIDIAN_LIFE_MANAGER":
 			config.ObsidianLifeManager = strings.ToLower(value) == "true" || value == "1"
+		case "DAILY_PATH_FORMAT":
+			config.DailyPathFormat = value
 		case "OUTPUT_FORMAT":
 			switch strings.ToLower(value) {
 			case "markdown", "md":

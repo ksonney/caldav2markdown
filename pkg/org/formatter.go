@@ -566,7 +566,7 @@ func writeOrgToFile(filename, content string) error {
 }
 
 // GenerateDailyOrgFiles creates daily Org files for events and tasks
-func GenerateDailyOrgFiles(outputDir string, events []markdown.EventMarkdown, tasks []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback markdown.ProgressCallback) error {
+func GenerateDailyOrgFiles(outputDir string, events []markdown.EventMarkdown, tasks []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback markdown.ProgressCallback, dailyPathFormat string) error {
 	// Group events by date
 	eventsByDate := make(map[string][]markdown.EventMarkdown)
 	tasksByDate := make(map[string][]markdown.TodoMarkdown)
@@ -660,19 +660,21 @@ func GenerateDailyOrgFiles(outputDir string, events []markdown.EventMarkdown, ta
 		}
 
 		// Create directory structure
-		var dirPath, filename string
+		var filename string
 		if date == "0001-01-01" {
-			dirPath = filepath.Join(outputDir, "0001", "01")
+			dirPath := filepath.Join(outputDir, "0001", "01")
+			if err := os.MkdirAll(dirPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+			}
+			filename = filepath.Join(dirPath, fmt.Sprintf("%s.org", date))
 		} else {
 			parsedDate, _ := time.Parse("2006-01-02", date)
-			dirPath = filepath.Join(outputDir, parsedDate.Format("2006"), parsedDate.Format("01"))
+			dirPath, stemPath := markdown.FormatDailyPath(outputDir, parsedDate, dailyPathFormat)
+			if err := os.MkdirAll(dirPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+			}
+			filename = stemPath + ".org"
 		}
-
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
-		}
-
-		filename = filepath.Join(dirPath, fmt.Sprintf("%s.org", date))
 
 		// Parse existing file if it exists
 		existingContent, err := parseExistingOrgFile(filename)
@@ -955,7 +957,7 @@ func GenerateTodoOrgDiaryFile(outputDir string, todos []markdown.TodoMarkdown, u
 }
 
 // GenerateDailyOrgDiaryFiles creates daily Org files for events and tasks using diary sexp format
-func GenerateDailyOrgDiaryFiles(outputDir string, events []markdown.EventMarkdown, tasks []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback markdown.ProgressCallback) error {
+func GenerateDailyOrgDiaryFiles(outputDir string, events []markdown.EventMarkdown, tasks []markdown.TodoMarkdown, useDueDateEmoji, useHashtags, ignoreDescriptions, eventCheckboxes, useCalendarTags, useObsidianEmojis bool, progressCallback markdown.ProgressCallback, dailyPathFormat string) error {
 	// Group events by date
 	eventsByDate := make(map[string][]markdown.EventMarkdown)
 	tasksByDate := make(map[string][]markdown.TodoMarkdown)
@@ -1049,19 +1051,21 @@ func GenerateDailyOrgDiaryFiles(outputDir string, events []markdown.EventMarkdow
 		}
 
 		// Create directory structure
-		var dirPath, filename string
+		var filename string
 		if date == "0001-01-01" {
-			dirPath = filepath.Join(outputDir, "0001", "01")
+			dirPath := filepath.Join(outputDir, "0001", "01")
+			if err := os.MkdirAll(dirPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+			}
+			filename = filepath.Join(dirPath, fmt.Sprintf("%s.org", date))
 		} else {
 			parsedDate, _ := time.Parse("2006-01-02", date)
-			dirPath = filepath.Join(outputDir, parsedDate.Format("2006"), parsedDate.Format("01"))
+			dirPath, stemPath := markdown.FormatDailyPath(outputDir, parsedDate, dailyPathFormat)
+			if err := os.MkdirAll(dirPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
+			}
+			filename = stemPath + ".org"
 		}
-
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %v", dirPath, err)
-		}
-
-		filename = filepath.Join(dirPath, fmt.Sprintf("%s.org", date))
 
 		// Parse existing file if it exists
 		existingContent, err := parseExistingOrgFile(filename)

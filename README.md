@@ -5,6 +5,7 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 ## 🆕 Recent Updates
 
 ### Latest Enhancements (2025)
+- **🗂️ Customizable Daily Note Path**: New `DAILY_PATH_FORMAT` setting allows you to define a custom strftime-style path format for daily files (e.g., `%Y/%m/%Y-%m-%d` for the default `YYYY/MM/YYYY-MM-DD` structure). Works with Markdown, Org mode, and Org-diary output formats
 - **📁 Obsidian Life Manager Structure**: Optional directory organization compatible with Obsidian Life Manager vault layout. Daily files organized as `Daily/YYYY/MM - Month Name/YYYY-MM-DD.md` and weekly files as `Weekly/YYYY/YYYY-Www.md`. Perfect for Obsidian users following the Life Manager system
 - **📆 Weekly File Output Mode**: New file organization mode that groups events and tasks by ISO week (Monday-Sunday) instead of daily files. Files organized as `YYYY/YYYY-WW.md` with daily sections within each weekly file. Perfect for weekly planning and review workflows
 - **📓 Emacs Diary Output**: Traditional Emacs diary format support with automatic single-file mode, perfect for GNU Emacs calendar integration
@@ -52,6 +53,7 @@ A powerful CalDAV to Markdown converter that transforms your calendar events and
 - **Multiple Output Formats**: Choose between Markdown (`.md`), Emacs Org mode (`.org`), Org-diary (`.org` with diary sexps), or Emacs diary format
 - **Flexible File Organization**:
   - **Daily Files** (default): Events organized by date in `YYYY/MM/YYYY-MM-DD.md` format
+  - **Custom Daily Path**: Configurable strftime-style path format via `DAILY_PATH_FORMAT` (e.g., `%Y/%B/%Y-%m-%d` for `2024/January/2024-01-15.md`)
   - **Weekly Files**: Events organized by ISO week in `YYYY/YYYY-WW.md` format (Monday-Sunday)
   - **Single File Mode**: All events consolidated in one file
 - **Smart Todo Management**: Tasks without due dates saved to separate `todo.md` or `todo.org` file
@@ -195,6 +197,7 @@ GOOGLE_CLIENT_SECRET=your_client_secret
 
 # Output and Formatting
 OUTPUT_DIR=./events
+DAILY_PATH_FORMAT=%Y/%m/%Y-%m-%d
 USE_DUE_DATE_EMOJI=true
 USE_HASHTAGS=true
 USE_CALENDAR_TAGS=true
@@ -411,6 +414,7 @@ bin/caldav2markdown -test
 **Output and Formatting:**
 - `-output`: Output directory for files (default: ./events)
 - `-output-format`: Output format: "markdown", "org", "org-diary", or "diary" (default: markdown)
+- `-daily-path-format`: strftime-style path format for daily files (e.g., `%Y/%m/%Y-%m-%d`; default: `%Y/%m/%Y-%m-%d`)
 - `-single-file`: Generate single file instead of daily files (automatic for diary and org-diary formats)
 - `-single-file-name`: Name for single file output (default: calendar.md, calendar.org, or diary)
 - `-config`: Configuration file path (default: ~/.config/caldav2markdown/config.yaml)
@@ -471,6 +475,7 @@ bin/caldav2markdown \
 ### File Organization
 
 - **Daily Files**: Events and tasks with due dates are organized in `YYYY/MM/YYYY-MM-DD.md` (Markdown) or `YYYY/MM/YYYY-MM-DD.org` (Org mode) files
+- **Custom Daily Path**: Use `DAILY_PATH_FORMAT` / `-daily-path-format` with a strftime-style format to customize the directory and filename structure (e.g., `%Y/%B/%Y-%m-%d` → `2024/January/2024-01-15.md`)
 - **Single File Mode**: All content in one `calendar.md` or `calendar.org` file (when `-single-file` is enabled)
 - **Todo File**: Tasks without due dates are saved to `todo.md` (Markdown) or `todo.org` (Org mode) in the output directory root
 - **Zero Dates**: Events with zero or invalid dates are saved in `0001/01/` directory
@@ -1589,6 +1594,53 @@ bin/caldav2markdown -emoji -hashtags -calendar-tags -event-checkboxes -frontmatt
 
 # Link events: Use [[2024-01-15]] to reference daily files
 ```
+
+## Customizable Daily Note Path
+
+By default, daily notes are organized as `YYYY/MM/YYYY-MM-DD.md`. The `DAILY_PATH_FORMAT` setting lets you customize this using strftime-style format codes.
+
+### Supported Format Codes
+
+| Code | Meaning | Example |
+|------|---------|---------|
+| `%Y` | 4-digit year | `2024` |
+| `%y` | 2-digit year | `24` |
+| `%m` | 2-digit month (01-12) | `01` |
+| `%d` | 2-digit day (01-31) | `15` |
+| `%B` | Full month name | `January` |
+| `%b` | Abbreviated month name | `Jan` |
+| `%A` | Full weekday name | `Monday` |
+| `%a` | Abbreviated weekday name | `Mon` |
+| `%%` | Literal `%` | `%` |
+
+### Configuration
+
+**Environment File**:
+```env
+DAILY_PATH_FORMAT=%Y/%m/%Y-%m-%d
+```
+
+**YAML Configuration**:
+```yaml
+daily_path_format: "%Y/%m/%Y-%m-%d"
+```
+
+**Command Line**:
+```bash
+bin/caldav2markdown -daily-path-format "%Y/%m/%Y-%m-%d"
+```
+
+### Examples
+
+| Format | Output Path |
+|--------|-------------|
+| `%Y/%m/%Y-%m-%d` | `2024/01/2024-01-15.md` (default) |
+| `%Y/%B/%Y-%m-%d` | `2024/January/2024-01-15.md` |
+| `%Y/%Y-%m-%d` | `2024/2024-01-15.md` |
+| `%Y/%m/%d` | `2024/01/15.md` |
+| `%Y-W%V/%Y-%m-%d` | `2024-W03/2024-01-15.md` |
+
+Works with Markdown (`.md`), Org mode (`.org`), and Org-diary output formats. The file extension is automatically appended based on the selected output format.
 
 ## Advanced Workflows
 

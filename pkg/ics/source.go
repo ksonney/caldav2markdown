@@ -1,8 +1,10 @@
 package ics
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -108,7 +110,12 @@ func (r *LocalICSReader) ReadICS(ctx context.Context) (*ics.Calendar, error) {
 	}
 	defer file.Close()
 
-	calendar, err := ics.ParseCalendar(file)
+	normalized, err := normalizeICSContent(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to normalize ICS file %s: %w", r.path, err)
+	}
+
+	calendar, err := ics.ParseCalendar(normalized)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ICS file %s: %w", r.path, err)
 	}
@@ -211,7 +218,12 @@ func (r *RemoteICSReader) ReadICS(ctx context.Context) (*ics.Calendar, error) {
 		fmt.Printf("Warning: unexpected content type for ICS: %s\n", contentType)
 	}
 
-	calendar, err := ics.ParseCalendar(resp.Body)
+	normalized, err := normalizeICSContent(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to normalize ICS from %s: %w", r.url, err)
+	}
+
+	calendar, err := ics.ParseCalendar(normalized)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ICS from %s: %w", r.url, err)
 	}
@@ -298,6 +310,81 @@ func (m *MultiSourceReader) ReadAllICS(ctx context.Context, progressCallback Sou
 	}
 
 	return calendars, nil
+}
+
+// normalizeICSContent fixes common non-conformant ICS content before parsing.
+// Some servers (e.g. SOGo) place calendar-level properties like X-WR-CALNAME
+// after component blocks (VEVENT, VTIMEZONE), which violates RFC 5545 and
+// causes the golang-ical parser to fail. This function moves any such
+// misplaced properties to before the first component.
+func normalizeICSContent(r io.Reader) (io.Reader, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	// Normalize line endings to LF
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
+	lines := strings.Split(content, "\n")
+
+	var header []string     // calendar-level properties before first component
+	var calProps []string   // misplaced calendar-level properties found after components
+	var components []string // all component blocks
+	var footer []string     // END:VCALENDAR
+
+	inComponent := false
+	componentDepth := 0
+	seenComponent := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "END:VCALENDAR" {
+			footer = append(footer, line)
+			continue
+		}
+		if !inComponent && (strings.HasPrefix(trimmed, "BEGIN:VEVENT") ||
+			strings.HasPrefix(trimmed, "BEGIN:VTIMEZONE") ||
+			strings.HasPrefix(trimmed, "BEGIN:VTODO") ||
+			strings.HasPrefix(trimmed, "BEGIN:VJOURNAL") ||
+			strings.HasPrefix(trimmed, "BEGIN:VFREEBUSY")) {
+			inComponent = true
+			seenComponent = true
+			componentDepth = 1
+			components = append(components, line)
+			continue
+		}
+		if inComponent {
+			components = append(components, line)
+			if strings.HasPrefix(trimmed, "BEGIN:") {
+				componentDepth++
+			} else if strings.HasPrefix(trimmed, "END:") {
+				componentDepth--
+				if componentDepth == 0 {
+					inComponent = false
+				}
+			}
+			continue
+		}
+		// A non-BEGIN/END property line appearing after we've seen a component
+		// is misplaced and needs to be moved before components.
+		if seenComponent && trimmed != "" && !strings.HasPrefix(trimmed, "BEGIN:") && !strings.HasPrefix(trimmed, "END:") {
+			calProps = append(calProps, line)
+			continue
+		}
+		header = append(header, line)
+	}
+
+	// If nothing was misplaced, return original content to avoid any subtle changes
+	if len(calProps) == 0 {
+		return bytes.NewReader(data), nil
+	}
+
+	// Reconstruct: header + misplaced properties + components + END:VCALENDAR
+	all := append(header, calProps...)
+	all = append(all, components...)
+	all = append(all, footer...)
+	return strings.NewReader(strings.Join(all, "\n")), nil
 }
 
 // GetSourceInfos returns information about all sources

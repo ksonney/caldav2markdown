@@ -4,6 +4,9 @@ All notable changes to caldav2markdown are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Rescan / regenerate markdown from database**: New `-rescan` CLI flag and `RESCAN=true` config option (YAML: `rescan: true`) to load all events and todos from the database and regenerate all markdown files, bypassing the "only new/changed items" filter used in normal database-backed runs. Useful when changing formatting options (hashtags, frontmatter, etc.) without re-fetching from the calendar server. Acts as a named alias for the existing `-from-database` flag.
+
 ### Fixed
 - **ICS parsing of non-conformant calendars**: Some servers (e.g. SOGo) place calendar-level properties like `X-WR-CALNAME` after all component blocks (`VEVENT`, `VTIMEZONE`, etc.), violating RFC 5545. The `golang-ical` parser rejects such files with "malformed calendar; expected begin or end". Added `normalizeICSContent()` to pre-process ICS content before parsing, moving any misplaced calendar-level properties back to their correct position. Also normalizes CRLF line endings. Affects both local and remote ICS sources.
 

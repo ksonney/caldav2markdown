@@ -113,6 +113,7 @@ func main() {
 		dbStats                = flag.Bool("db-stats", false, "Show database statistics and exit")
 		dbClear                = flag.Bool("db-clear", false, "Clear all data from database and exit")
 		fromDatabase           = flag.Bool("from-database", false, "Generate markdown from database instead of fetching from calendars")
+		rescan                 = flag.Bool("rescan", false, "Rescan database and regenerate all markdown files (alias for -from-database)")
 	)
 	flag.Parse()
 
@@ -273,6 +274,9 @@ func main() {
 	if *databasePath != "" {
 		cfg.DatabasePath = *databasePath
 	}
+	if *rescan {
+		cfg.Rescan = true
+	}
 	// Set default database path if not specified but database is enabled
 	if cfg.UseDatabase && cfg.DatabasePath == "" {
 		// Place database alongside config file
@@ -397,6 +401,7 @@ func main() {
 		fmt.Println("  -use-database     Enable SQLite database for deduplication")
 		fmt.Println("  -database-path    Path to SQLite database (default: alongside config file)")
 		fmt.Println("  -from-database    Generate markdown from database instead of fetching calendars")
+		fmt.Println("  -rescan           Rescan database and regenerate all markdown files (alias for -from-database)")
 		fmt.Println("  -db-stats         Show database statistics and exit")
 		fmt.Println("  -db-clear         Clear all database data and exit")
 		fmt.Println("")
@@ -504,12 +509,13 @@ func main() {
 	var duplicatesFound int
 
 	// Check if we should generate from database instead of fetching calendars
-	if *fromDatabase {
+	useFromDatabase := *fromDatabase || cfg.Rescan
+	if useFromDatabase {
 		if db == nil {
-			fmt.Println("Error: -from-database requires -use-database to be enabled")
+			fmt.Println("Error: -from-database / -rescan requires -use-database to be enabled")
 			os.Exit(1)
 		}
-		fmt.Println("Generating markdown from database...")
+		fmt.Println("Rescanning database and regenerating markdown files...")
 		if err := generateFromDatabase(db, cfg, &sourcedEvents, &sourcedTodos); err != nil {
 			fmt.Printf("Error generating from database: %v\n", err)
 			os.Exit(1)
@@ -574,7 +580,7 @@ func main() {
 
 	// Store in database and filter to only new/changed items if database is enabled
 	var dbNewEvents, dbNewTodos, dbUpdatedEvents, dbUpdatedTodos int
-	if db != nil && !*fromDatabase {
+	if db != nil && !useFromDatabase {
 		fmt.Println("Storing events and todos in database...")
 		var newOrChangedEventUIDs, newOrChangedTodoUIDs map[string]bool
 		dbNewEvents, dbUpdatedEvents, dbNewTodos, dbUpdatedTodos, newOrChangedEventUIDs, newOrChangedTodoUIDs = storeInDatabaseAndTrackChanges(db, sourcedEvents, sourcedTodos)

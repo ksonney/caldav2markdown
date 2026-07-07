@@ -78,6 +78,7 @@ type Config struct {
 	Output              string            `yaml:"output"`
 	DatabasePath        string            `yaml:"database_path"`
 	UseDatabase         bool              `yaml:"use_database"`
+	Rescan              bool              `yaml:"rescan"`
 	StartDate           time.Time         `yaml:"start_date"`
 	EndDate             time.Time         `yaml:"end_date"`
 	UseDueDateEmoji     bool              `yaml:"use_due_date_emoji"`
@@ -373,6 +374,8 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.DatabasePath = value
 		case "USE_DATABASE":
 			config.UseDatabase = strings.ToLower(value) == "true" || value == "1"
+		case "RESCAN":
+			config.Rescan = strings.ToLower(value) == "true" || value == "1"
 		case "START_DATE":
 			if startDate, err := time.Parse("2006-01-02", value); err == nil {
 				config.StartDate = startDate

@@ -5,6 +5,7 @@ All notable changes to caldav2markdown are documented here.
 ## [Unreleased]
 
 ### Added
+- **Output time zone flag**: New `-timezone` CLI flag and `OUTPUT_TIMEZONE` config option (YAML: `output_timezone`) to render event/task times in a specific IANA time zone (e.g. `America/New_York`) instead of the system's local time zone. Applies to all output formats (Markdown, Org, Org-Diary, Emacs diary) and to both CalDAV and ICS sources. Invalid time zone names are rejected at startup before any calendar data is fetched.
 - **Rescan / regenerate markdown from database**: New `-rescan` CLI flag and `RESCAN=true` config option (YAML: `rescan: true`) to load all events and todos from the database and regenerate all markdown files, bypassing the "only new/changed items" filter used in normal database-backed runs. Useful when changing formatting options (hashtags, frontmatter, etc.) without re-fetching from the calendar server. Acts as a named alias for the existing `-from-database` flag.
 
 ### Fixed

@@ -84,6 +84,7 @@ func main() {
 		obsidianLifeManager    = flag.Bool("obsidian-life-manager", false, "Use Obsidian Life Manager directory structure (Daily/YYYY/MM - Month/)")
 		outputFormat           = flag.String("output-format", "markdown", "Output format: markdown, org, org-diary, or diary")
 		dailyPathFormat        = flag.String("daily-path-format", "", "strftime-style path format for daily files, e.g. %Y/%m/%Y-%m-%d (default: %Y/%m/%Y-%m-%d)")
+		outputTimezone         = flag.String("timezone", "", "IANA time zone for rendering event/task times, e.g. America/New_York (default: system local time zone)")
 		useServerSideFiltering = flag.Bool("server-side-filtering", false, "Use CalDAV server-side filtering (faster for large calendars)")
 		discoverCalendars      = flag.Bool("discover-calendars", false, "Discover and process all calendars on the server")
 		includeCalendars       = flag.String("include-calendars", "", "Comma-separated list of calendar names/URLs to include")
@@ -212,6 +213,9 @@ func main() {
 	}
 	if *dailyPathFormat != "" {
 		cfg.DailyPathFormat = *dailyPathFormat
+	}
+	if *outputTimezone != "" {
+		cfg.OutputTimezone = *outputTimezone
 	}
 	if *outputFormat != "markdown" {
 		switch strings.ToLower(*outputFormat) {
@@ -420,9 +424,23 @@ func main() {
 		fmt.Println("  -single-file      Generate a single file instead of separate daily files")
 		fmt.Println("  -single-file-name Name of the single output file (default: calendar.md or calendar.org)")
 		fmt.Println("  -weekly-file      Generate weekly files instead of daily files (Monday-Sunday, ISO week numbers)")
+		fmt.Println("  -timezone         IANA time zone for rendering event/task times (default: system local time zone)")
 		fmt.Println("")
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Resolve and apply the output time zone. cfg.Validate() has already
+	// confirmed OutputTimezone (if set) is a loadable location.
+	outputLoc, err := cfg.ResolveOutputLocation()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	markdown.SetOutputLocation(outputLoc)
+	icsource.SetOutputLocation(outputLoc)
+	if cfg.OutputTimezone != "" {
+		fmt.Printf("Rendering event/task times in %s\n", cfg.OutputTimezone)
 	}
 
 	// Initialize database if enabled

@@ -98,6 +98,7 @@ type Config struct {
 	ObsidianLifeManager bool              `yaml:"obsidian_life_manager"` // Use Obsidian Life Manager directory structure
 	OutputFormat        string            `yaml:"output_format"` // "markdown", "org", or "diary"
 	DailyPathFormat     string            `yaml:"daily_path_format"` // strftime-style path format for daily files (e.g. %Y/%m/%Y-%m-%d)
+	OutputTimezone      string            `yaml:"output_timezone"` // IANA time zone name for rendering event/task times (default: system local time zone)
 
 	// Multi-source configuration
 	Sources []SourceConfig `yaml:"sources"`
@@ -453,6 +454,8 @@ func LoadFromEnvFile(filename string) (*Config, error) {
 			config.ObsidianLifeManager = strings.ToLower(value) == "true" || value == "1"
 		case "DAILY_PATH_FORMAT":
 			config.DailyPathFormat = value
+		case "OUTPUT_TIMEZONE":
+			config.OutputTimezone = value
 		case "OUTPUT_FORMAT":
 			switch strings.ToLower(value) {
 			case "markdown", "md":
@@ -1326,6 +1329,13 @@ func (c *Config) ValidateGlobalConfig() error {
 		}
 	}
 
+	// Validate output time zone
+	if c.OutputTimezone != "" {
+		if _, err := time.LoadLocation(c.OutputTimezone); err != nil {
+			return fmt.Errorf("invalid output_timezone %q: %w", c.OutputTimezone, err)
+		}
+	}
+
 	// Validate date range
 	if c.EndDate.Before(c.StartDate) {
 		return fmt.Errorf("end date (%s) cannot be before start date (%s)",
@@ -1339,6 +1349,20 @@ func (c *Config) ValidateGlobalConfig() error {
 	}
 
 	return nil
+}
+
+// ResolveOutputLocation returns the *time.Location events and tasks should be
+// rendered in. It returns time.Local when OutputTimezone is unset, and
+// assumes OutputTimezone has already been validated (e.g. via Validate).
+func (c *Config) ResolveOutputLocation() (*time.Location, error) {
+	if c.OutputTimezone == "" {
+		return time.Local, nil
+	}
+	loc, err := time.LoadLocation(c.OutputTimezone)
+	if err != nil {
+		return nil, fmt.Errorf("invalid output_timezone %q: %w", c.OutputTimezone, err)
+	}
+	return loc, nil
 }
 
 // GetSourceNames returns a list of all configured source names

@@ -198,6 +198,7 @@ GOOGLE_CLIENT_SECRET=your_client_secret
 # Output and Formatting
 OUTPUT_DIR=./events
 DAILY_PATH_FORMAT=%Y/%m/%Y-%m-%d
+OUTPUT_TIMEZONE=America/New_York
 USE_DUE_DATE_EMOJI=true
 USE_HASHTAGS=true
 USE_CALENDAR_TAGS=true
@@ -415,6 +416,7 @@ bin/caldav2markdown -test
 - `-output`: Output directory for files (default: ./events)
 - `-output-format`: Output format: "markdown", "org", "org-diary", or "diary" (default: markdown)
 - `-daily-path-format`: strftime-style path format for daily files (e.g., `%Y/%m/%Y-%m-%d`; default: `%Y/%m/%Y-%m-%d`)
+- `-timezone`: IANA time zone for rendering event/task times (e.g., `America/New_York`; default: system local time zone)
 - `-single-file`: Generate single file instead of daily files (automatic for diary and org-diary formats)
 - `-single-file-name`: Name for single file output (default: calendar.md, calendar.org, or diary)
 - `-config`: Configuration file path (default: ~/.config/caldav2markdown/config.yaml)

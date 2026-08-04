@@ -10,6 +10,20 @@ import (
 	"caldav2markdown/pkg/rrule"
 )
 
+// OutputLocation is the time zone used when interpreting event/task times
+// (e.g. for date-range filtering). It defaults to the system's local time
+// zone; use SetOutputLocation to override it, keeping it in sync with
+// pkg/markdown's OutputLocation so filtering and final output agree.
+var OutputLocation = time.Local
+
+// SetOutputLocation sets the time zone used when interpreting times from ICS sources.
+// A nil location is ignored, leaving the current setting unchanged.
+func SetOutputLocation(loc *time.Location) {
+	if loc != nil {
+		OutputLocation = loc
+	}
+}
+
 // EventData represents processed event data similar to CalDAV's DeduplicationResult
 type EventData struct {
 	Events            []*ics.VEvent
@@ -339,11 +353,11 @@ func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 	// Try UTC format with Z suffix first - convert to local time
 	if strings.HasSuffix(value, "Z") {
 		if t, err := time.Parse("20060102T150405Z", value); err == nil {
-			return t.In(time.Local), false, nil // Convert UTC to local time
+			return t.In(OutputLocation), false, nil // Convert UTC to local time
 		}
 		// Try with fractional seconds
 		if t, err := time.Parse("20060102T150405.000Z", value); err == nil {
-			return t.In(time.Local), false, nil // Convert UTC to local time
+			return t.In(OutputLocation), false, nil // Convert UTC to local time
 		}
 	}
 
@@ -356,7 +370,7 @@ func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 				// Parse the time in the specified time zone
 				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
 				// Convert to local time
-				return sourceTime.In(time.Local), false, nil
+				return sourceTime.In(OutputLocation), false, nil
 			}
 			// If timezone cannot be resolved, treat as local time and warn
 			return t, false, fmt.Errorf("unrecognized timezone '%s', treating as local time", tzid)
@@ -366,7 +380,7 @@ func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 		if t, err := time.Parse("20060102T150405.000", value); err == nil {
 			if loc := mapTimeZone(tzid); loc != nil {
 				sourceTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
-				return sourceTime.In(time.Local), false, nil
+				return sourceTime.In(OutputLocation), false, nil
 			}
 			return t, false, fmt.Errorf("unrecognized timezone '%s', treating as local time", tzid)
 		}
@@ -375,41 +389,41 @@ func parseICalDateTimeWithTZ(value, tzid string) (time.Time, bool, error) {
 	// Try local time format without Z suffix and without TZID - assume local time
 	if t, err := time.Parse("20060102T150405", value); err == nil {
 		// No TZID provided, interpret as local time by reconstructing in local timezone
-		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), OutputLocation)
 		return localTime, false, nil
 	}
 
 	// Try with fractional seconds
 	if t, err := time.Parse("20060102T150405.000", value); err == nil {
 		// No TZID provided, interpret as local time by reconstructing in local timezone
-		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), OutputLocation)
 		return localTime, false, nil
 	}
 
 	// Try date-only format - always local
 	if t, err := time.Parse("20060102", value); err == nil {
 		// Ensure date is in local time
-		localTime := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+		localTime := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, OutputLocation)
 		return localTime, true, nil // true indicates all-day
 	}
 
 	// Try date with dashes (less common but valid)
 	if t, err := time.Parse("2006-01-02", value); err == nil {
 		// Ensure date is in local time
-		localTime := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+		localTime := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, OutputLocation)
 		return localTime, true, nil
 	}
 
 	// Try datetime with dashes and colons - assume local
 	if t, err := time.Parse("2006-01-02T15:04:05", value); err == nil {
 		// No timezone specified, interpret as local time
-		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), OutputLocation)
 		return localTime, false, nil
 	}
 
 	// Try datetime with dashes, colons, and timezone - convert to local
 	if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
-		return t.In(time.Local), false, nil // Convert UTC to local time
+		return t.In(OutputLocation), false, nil // Convert UTC to local time
 	}
 
 	return time.Time{}, false, fmt.Errorf("could not parse date/time: %s (tzid: %s)", value, tzid)

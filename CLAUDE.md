@@ -1268,6 +1268,7 @@ single_file: false                  # Generate single file instead of daily file
 single_file_name: calendar.md       # Name for single file output (when single_file: true)
 weekly_file_output: false           # Generate weekly files instead of daily files (ISO week Monday-Sunday)
 obsidian_life_manager: false        # Use Obsidian Life Manager directory structure
+output_timezone: ""                 # IANA time zone for rendering event/task times (e.g. America/New_York; default: system local time zone)
 start_date: 2024-01-01T00:00:00Z   # Start date (ISO 8601 format)
 end_date: 2024-12-31T23:59:59Z     # End date (ISO 8601 format)
 
